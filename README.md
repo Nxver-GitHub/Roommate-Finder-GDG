@@ -3,3 +3,8 @@ Mobile app for university students looking to find roommates through efficient a
 
 Add your name here to test pushing files/code to repository:
 Surya Pugazhenthi
+Glenn Grant-Richards
+
+
+npm install
+npm run dev
