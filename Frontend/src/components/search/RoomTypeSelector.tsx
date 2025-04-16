@@ -12,16 +12,40 @@ export default function RoomTypeSelector({ value, onChange }: RoomTypeSelectorPr
   const bathrooms = [1, 1.5, 2, 2.5, 3, 3.5, 4];
   
   const toggleRoomType = (type: keyof Pick<RoomType, 'private' | 'shared' | 'entirePlace'>) => {
-    onChange({ ...value, [type]: !value[type] });
+    const newValue = { ...value };
+    const isCurrentlyOn = newValue[type];
+    const turningOn = !isCurrentlyOn;
+
+    if (turningOn) {
+      newValue[type] = true;
+      if (type === 'private') {
+        newValue.shared = false;
+      } else if (type === 'shared') {
+        newValue.private = false;
+      }
+    } else {
+      const otherOptionsOn = (type === 'private' && (newValue.shared || newValue.entirePlace)) ||
+                             (type === 'shared' && (newValue.private || newValue.entirePlace)) ||
+                             (type === 'entirePlace' && (newValue.private || newValue.shared));
+
+      if (otherOptionsOn) {
+        newValue[type] = false;
+      }
+    }
+
+    onChange(newValue);
   };
   
   const toggleBedroom = (number: number) => {
     const currentBedrooms = [...value.bedrooms];
+    
     if (currentBedrooms.includes(number)) {
-      onChange({ 
-        ...value, 
-        bedrooms: currentBedrooms.filter(b => b !== number) 
-      });
+      if (currentBedrooms.length > 1) {
+        onChange({ 
+          ...value, 
+          bedrooms: currentBedrooms.filter(b => b !== number).sort((a, b) => a - b) 
+        });
+      }
     } else {
       onChange({ 
         ...value, 
@@ -32,11 +56,14 @@ export default function RoomTypeSelector({ value, onChange }: RoomTypeSelectorPr
   
   const toggleBathroom = (number: number) => {
     const currentBathrooms = [...value.bathrooms];
+    
     if (currentBathrooms.includes(number)) {
-      onChange({ 
-        ...value, 
-        bathrooms: currentBathrooms.filter(b => b !== number) 
-      });
+      if (currentBathrooms.length > 1) {
+        onChange({ 
+          ...value, 
+          bathrooms: currentBathrooms.filter(b => b !== number).sort((a, b) => a - b) 
+        });
+      }
     } else {
       onChange({ 
         ...value, 
@@ -71,7 +98,7 @@ export default function RoomTypeSelector({ value, onChange }: RoomTypeSelectorPr
           />
         </View>
         
-        <View style={styles.optionContainer}>
+        <View style={[styles.optionContainer, { borderBottomWidth: 0 }]}>
           <Text style={styles.optionLabel}>Entire Place</Text>
           <Switch
             value={value.entirePlace}
@@ -134,6 +161,7 @@ export default function RoomTypeSelector({ value, onChange }: RoomTypeSelectorPr
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    padding: 8,
   },
   title: {
     fontSize: 20,

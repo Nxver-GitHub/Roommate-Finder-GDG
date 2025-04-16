@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Animated,
   PanResponder,
@@ -10,30 +10,40 @@ import {
   Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ArrowRight, ArrowLeft, Heart, X } from 'lucide-react-native';
+import { MapPin, Briefcase, Check, X } from 'lucide-react-native';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
 const SWIPE_OUT_DURATION = 250;
 
-// These will be replaced with real user profile types later
-type UserProfile = {
-  id: string;
-  name: string;
-  age: number;
-  occupation: string;
-  bio: string;
-  images: string[];
-  distance?: number;
-  interests?: string[];
-};
+// Define user profile type matching your data structure
+interface UserProfileData {
+  id?: string;
+  basicInfo?: { 
+    firstName?: string; 
+    lastName?: string; 
+    age?: number; 
+    occupation?: string;
+    bio?: string;
+  };
+  preferences?: { 
+    location?: string; 
+    budget?: { min?: number; max?: number }; 
+  };
+  photoURL?: string | null;
+  photos?: string[];
+  [key: string]: any;
+}
 
 interface SwipeableCardProps {
-  profile: UserProfile;
-  onSwipeLeft: (profile: UserProfile) => void;
-  onSwipeRight: (profile: UserProfile) => void;
+  profile: UserProfileData;
+  onSwipeLeft: (profile: UserProfileData) => void;
+  onSwipeRight: (profile: UserProfileData) => void;
   isFirst: boolean;
 }
+
+// Define a placeholder image URI
+const PLACEHOLDER_IMAGE_URI = 'https://via.placeholder.com/400/374151/e5e7eb?text=No+Photo';
 
 export const SwipeableCard: React.FC<SwipeableCardProps> = ({
   profile,
@@ -41,196 +51,133 @@ export const SwipeableCard: React.FC<SwipeableCardProps> = ({
   onSwipeRight,
   isFirst,
 }) => {
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const position = useRef(new Animated.ValueXY()).current;
   
-  // Reset position when a new card becomes the top card
-  useEffect(() => {
-    position.setValue({ x: 0, y: 0 });
-  }, [isFirst, profile.id]);
-  
-  const rotate = position.x.interpolate({
-    inputRange: [-SCREEN_WIDTH * 1.5, 0, SCREEN_WIDTH * 1.5],
-    outputRange: ['-30deg', '0deg', '30deg'],
-    extrapolate: 'clamp',
-  });
-
-  // Opacity for the "Like" indicator
+  // Opacity for the text indicators
   const likeOpacity = position.x.interpolate({
-    inputRange: [0, SCREEN_WIDTH * 0.2],
+    inputRange: [0, SWIPE_THRESHOLD / 2], // Fade in faster
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
-
-  // Opacity for the "Nope" indicator
   const nopeOpacity = position.x.interpolate({
-    inputRange: [-SCREEN_WIDTH * 0.2, 0],
+    inputRange: [-SWIPE_THRESHOLD / 2, 0], // Fade in faster
     outputRange: [1, 0],
     extrapolate: 'clamp',
   });
-  
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => isFirst,
+      onPanResponderMove: (event, gesture) => {
+        position.setValue({ x: gesture.dx, y: gesture.dy });
+      },
+      onPanResponderRelease: (event, gesture) => {
+        if (gesture.dx > SWIPE_THRESHOLD) {
+          swipeRight();
+        } else if (gesture.dx < -SWIPE_THRESHOLD) {
+          swipeLeft();
+        } else {
+          resetPosition();
+        }
+      },
+    })
+  ).current;
+
   const resetPosition = () => {
     Animated.spring(position, {
       toValue: { x: 0, y: 0 },
-      friction: 4,
-      useNativeDriver: false,
+      useNativeDriver: false, // Required for layout animations like rotation
     }).start();
   };
-  
+
   const swipeLeft = () => {
     Animated.timing(position, {
       toValue: { x: -SCREEN_WIDTH * 1.5, y: 0 },
       duration: SWIPE_OUT_DURATION,
       useNativeDriver: false,
-    }).start(() => {
-      onSwipeLeft(profile);
-    });
+    }).start(() => onSwipeLeft(profile));
   };
-  
+
   const swipeRight = () => {
     Animated.timing(position, {
       toValue: { x: SCREEN_WIDTH * 1.5, y: 0 },
       duration: SWIPE_OUT_DURATION,
       useNativeDriver: false,
-    }).start(() => {
-      onSwipeRight(profile);
-    });
+    }).start(() => onSwipeRight(profile));
   };
 
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => isFirst,
-    onMoveShouldSetPanResponder: () => isFirst,
-    onPanResponderMove: (event, gesture) => {
-      position.setValue({ x: gesture.dx, y: gesture.dy });
-    },
-    onPanResponderRelease: (event, gesture) => {
-      if (gesture.dx > SWIPE_THRESHOLD) {
-        swipeRight();
-      } else if (gesture.dx < -SWIPE_THRESHOLD) {
-        swipeLeft();
-      } else {
-        resetPosition();
-      }
-    },
-  });
+  // Get the main display image
+  const mainImageUrl = profile.photoURL || 
+                      (profile.photos && profile.photos.length > 0 ? profile.photos[0] : null) || 
+                      PLACEHOLDER_IMAGE_URI;
 
-  const nextImage = () => {
-    if (currentImageIndex < profile.images.length - 1) {
-      setCurrentImageIndex(currentImageIndex + 1);
-    }
-  };
-
-  const prevImage = () => {
-    if (currentImageIndex > 0) {
-      setCurrentImageIndex(currentImageIndex - 1);
-    }
-  };
+  // Prepare name, age, etc.
+  const displayName = `${profile.basicInfo?.firstName || ''} ${profile.basicInfo?.lastName || ''}`.trim() || 'User';
+  const age = profile.basicInfo?.age || '';
+  const occupation = profile.basicInfo?.occupation || '';
+  const location = profile.preferences?.location || '';
+  const bio = profile.basicInfo?.bio || '';
 
   const cardStyle = {
     transform: [
-      { translateX: position.x },
-      { translateY: position.y },
-      { rotate },
+      {
+        rotate: position.x.interpolate({
+          inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
+          outputRange: ['-15deg', '0deg', '15deg'], // Slightly more rotation
+          extrapolate: 'clamp',
+        }),
+      },
+      ...position.getTranslateTransform(),
     ],
-    opacity: isFirst ? 1 : 0.9,
-    zIndex: isFirst ? 1 : 0,
-    top: isFirst ? 0 : 10,
   };
 
   return (
     <Animated.View
-      style={[styles.card, cardStyle]}
+      style={[styles.card, cardStyle, { zIndex: isFirst ? 1 : 0 }]} // Ensure top card is interactable
       {...(isFirst ? panResponder.panHandlers : {})}
     >
-      <Image
-        source={{ uri: profile.images[currentImageIndex] }}
-        style={styles.image}
-      />
+      <Image source={{ uri: mainImageUrl }} style={styles.image} />
 
-      {/* Image navigation dots */}
-      <View style={styles.imageDots}>
-        {profile.images.map((_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.dot,
-              { opacity: index === currentImageIndex ? 1 : 0.5 },
-            ]}
-          />
-        ))}
-      </View>
-
-      {/* Left/Right image navigation */}
-      {profile.images.length > 1 && (
+      {/* Icon Overlays for Like/Nope */}
+      {isFirst && ( // Only show indicators on the top card
         <>
-          <View style={[styles.imageNavLeft, { opacity: currentImageIndex > 0 ? 1 : 0.3 }]}>
-            <ArrowLeft
-              size={24}
-              color="#fff"
-              onPress={prevImage}
-              style={styles.imageNavIcon}
-            />
-          </View>
-          <View
-            style={[
-              styles.imageNavRight,
-              {
-                opacity: currentImageIndex < profile.images.length - 1 ? 1 : 0.3,
-              },
-            ]}
-          >
-            <ArrowRight
-              size={24}
-              color="#fff"
-              onPress={nextImage}
-              style={styles.imageNavIcon}
-            />
-          </View>
+          {/* Check Mark for Like */}
+          <Animated.View style={[styles.overlayIcon, styles.likeIconContainer, { opacity: likeOpacity }]}>
+            <Check size={100} color="#4CAF50" strokeWidth={4} />
+          </Animated.View>
+          {/* X Mark for Nope */}
+          <Animated.View style={[styles.overlayIcon, styles.nopeIconContainer, { opacity: nopeOpacity }]}>
+            <X size={100} color="#F44336" strokeWidth={4} />
+          </Animated.View>
         </>
       )}
 
-      {/* Like indicator */}
-      {isFirst && (
-        <Animated.View
-          style={[styles.likeContainer, { opacity: likeOpacity }]}
-        >
-          <Heart size={80} color="#4CAF50" fill="#4CAF50" />
-        </Animated.View>
-      )}
-
-      {/* Nope indicator */}
-      {isFirst && (
-        <Animated.View
-          style={[styles.nopeContainer, { opacity: nopeOpacity }]}
-        >
-          <X size={80} color="#F44336" />
-        </Animated.View>
-      )}
-
-      {/* Profile info */}
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.9)']}
         style={styles.infoContainer}
       >
         <Text style={styles.name}>
-          {profile.name}, {profile.age}
+          {displayName}{age ? `, ${age}` : ''}
         </Text>
-        <Text style={styles.occupation}>{profile.occupation}</Text>
-        {profile.distance && (
-          <Text style={styles.distance}>{profile.distance} miles away</Text>
-        )}
-        <Text numberOfLines={3} style={styles.bio}>
-          {profile.bio}
-        </Text>
-
-        {profile.interests && profile.interests.length > 0 && (
-          <View style={styles.interestsContainer}>
-            {profile.interests.map((interest, index) => (
-              <View key={index} style={styles.interestBadge}>
-                <Text style={styles.interestText}>{interest}</Text>
-              </View>
-            ))}
+        
+        {occupation && (
+          <View style={styles.detailRow}>
+            <Briefcase size={16} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.occupation}>{occupation}</Text>
           </View>
+        )}
+        
+        {location && (
+          <View style={styles.detailRow}>
+            <MapPin size={16} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.location}>{location}</Text>
+          </View>
+        )}
+        
+        {bio && (
+          <Text numberOfLines={3} style={styles.bio}>
+            {bio}
+          </Text>
         )}
       </LinearGradient>
     </Animated.View>
@@ -239,135 +186,76 @@ export const SwipeableCard: React.FC<SwipeableCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    position: 'absolute',
+    position: 'absolute', // Important for stacking
     width: SCREEN_WIDTH * 0.9,
     height: SCREEN_WIDTH * 1.3,
     borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: '#333',
-    alignSelf: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: 'black',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 5,
-      },
-      android: {
-        elevation: 5,
-      },
-    }),
+    backgroundColor: '#1a1a1a', // Dark background fallback
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 5,
   },
   image: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
   },
-  imageDots: {
+  // Styles for the Icon Overlays
+  overlayIcon: {
     position: 'absolute',
-    top: 20,
-    flexDirection: 'row',
+    top: '50%', // Center vertically roughly
+    marginTop: -50, // Adjust based on icon size
+    width: 100, // Container size
+    height: 100,
     justifyContent: 'center',
-    width: '100%',
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'white',
-    margin: 3,
-  },
-  imageNavLeft: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 60,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    paddingLeft: 15,
-  },
-  imageNavRight: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: 60,
-    justifyContent: 'center',
-    alignItems: 'flex-end',
-    paddingRight: 15,
-  },
-  imageNavIcon: {
-    ...Platform.select({
-      ios: {
-        shadowColor: 'black',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 5,
-      },
-    }),
-  },
-  likeContainer: {
-    position: 'absolute',
-    top: 50,
-    right: 40,
-    transform: [{ rotate: '15deg' }],
+    alignItems: 'center',
     zIndex: 1000,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)', // Optional subtle background
+    borderRadius: 50, // Make it circular
   },
-  nopeContainer: {
-    position: 'absolute',
-    top: 50,
-    left: 40,
-    transform: [{ rotate: '-15deg' }],
-    zIndex: 1000,
+  likeIconContainer: {
+    right: 30, // Position on the right
+    transform: [{ rotate: '15deg' }], // Tilt slightly
   },
+  nopeIconContainer: {
+    left: 30, // Position on the left
+    transform: [{ rotate: '-15deg' }], // Tilt slightly
+  },
+  // --- End Icon Overlay Styles ---
   infoContainer: {
     position: 'absolute',
     bottom: 0,
-    width: '100%',
+    left: 0,
+    right: 0,
     padding: 20,
+    paddingTop: 40, // Gradient start point
   },
   name: {
+    color: 'white',
     fontSize: 24,
     fontWeight: 'bold',
-    color: 'white',
-  },
-  occupation: {
-    fontSize: 16,
-    color: 'white',
-    opacity: 0.9,
-    marginBottom: 4,
-  },
-  distance: {
-    fontSize: 14,
-    color: 'white',
-    opacity: 0.7,
     marginBottom: 8,
   },
-  bio: {
-    fontSize: 14,
-    color: 'white',
-    opacity: 0.8,
-    marginBottom: 10,
-  },
-  interestsContainer: {
+  detailRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 5,
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  interestBadge: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginRight: 6,
-    marginBottom: 6,
-  },
-  interestText: {
+  occupation: {
     color: 'white',
-    fontSize: 12,
+    fontSize: 16,
   },
+  location: {
+    color: 'white',
+    fontSize: 16,
+  },
+  bio: {
+    color: 'white',
+    fontSize: 14,
+    marginTop: 8,
+    lineHeight: 20,
+  }
 });

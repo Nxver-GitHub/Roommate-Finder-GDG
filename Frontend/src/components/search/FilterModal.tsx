@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -16,6 +16,7 @@ import LocationSelector from './LocationSelector';
 import DateRangeSelector from './DateRangeSelector';
 import RoomTypeSelector from './RoomTypeSelector';
 import LifestyleSelector from './LifestyleSelector';
+import GenderSelector from './GenderSelector';
 
 interface FilterModalProps {
   visible: boolean;
@@ -63,6 +64,11 @@ export default function FilterModal({
       key: 'lifestyle',
       component: LifestyleSelector 
     },
+    { 
+      title: 'Gender',
+      key: 'genderPreference',
+      component: GenderSelector
+    },
   ];
 
   const handleReset = () => {
@@ -82,11 +88,46 @@ export default function FilterModal({
   };
 
   const updateFilters = (sectionKey: string, value: any) => {
-    setFilters(prev => ({
-      ...prev,
-      [sectionKey]: value
-    }));
+    // Special handling for moveInDates to ensure we have proper Date objects
+    if (sectionKey === 'moveInDates') {
+      // Make sure both dates are actual Date objects before updating state
+      const earliest = ensureDateObject(value.earliest);
+      const latest = ensureDateObject(value.latest);
+      
+      setFilters(prev => ({
+        ...prev,
+        [sectionKey]: {
+          earliest,
+          latest
+        }
+      }));
+    } else {
+      // Normal handling for other filter types
+      setFilters(prev => ({
+        ...prev,
+        [sectionKey]: value
+      }));
+    }
   };
+
+  // Helper function to ensure we have a Date object
+  const ensureDateObject = (dateValue: any): Date => {
+    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+      return dateValue;
+    }
+    if (typeof dateValue === 'string') {
+      const parsedDate = new Date(dateValue);
+      if (!isNaN(parsedDate.getTime())) {
+        return parsedDate;
+      }
+    }
+    // Default to current date if invalid
+    return new Date();
+  };
+
+  useEffect(() => {
+    setFilters(initialFilters || defaultFilters);
+  }, [initialFilters]);
 
   const SectionComponent = sections[currentSection].component;
 
@@ -157,7 +198,6 @@ export default function FilterModal({
           </TouchableOpacity>
         </View>
 
-        {/* Save Filter Dialog */}
         {showSaveDialog && (
           <View style={styles.saveDialogContainer}>
             <View style={styles.saveDialogBackdrop} />

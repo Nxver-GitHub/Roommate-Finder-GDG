@@ -124,5 +124,5 @@ The project uses TypeScript for type safety. If you encounter type errors:
 This project is licensed under the MIT License.
 
 ## Acknowledgements
-- This app was created as part of the Google Developer Group project
+- This app was created as part of a UC Santa Cruz Google Developer Group project
 - UI/UX inspiration from popular roommate and dating applications
