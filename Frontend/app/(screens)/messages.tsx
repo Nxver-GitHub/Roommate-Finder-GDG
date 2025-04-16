@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,72 +8,303 @@ import {
   Image,
   SafeAreaView,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Search, X } from 'lucide-react-native';
+import { getCurrentUser } from '../../src/firebase/auth';
 import {
-  getConversations,
-  getLastMessage,
-  formatMessageTime,
-  currentUser,
-} from '../../src/services/mockMessages';
+  collection,
+  query,
+  where,
+  onSnapshot,
+  orderBy,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  Timestamp,
+  serverTimestamp,
+  writeBatch
+} from 'firebase/firestore';
+import { db } from '../../src/firebase/config';
+import { getUserProfile } from '../../src/firebase/firestore';
+
+const PLACEHOLDER_IMAGE_URI = 'https://via.placeholder.com/100/374151/e5e7eb?text=No+Pic';
+const CONVERSATIONS_COLLECTION = 'conversations'; // Collection name for conversations
+const MESSAGES_SUBCOLLECTION = 'messages'; // Subcollection for messages
 
 export default function MessagesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [conversations, setConversations] = useState(getConversations());
+  const [conversations, setConversations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
 
-  const filteredConversations = conversations.filter((conv) => {
-    const otherParticipant = conv.participants.find(
-      (p) => p.id !== currentUser.id
-    );
-    return (
-      otherParticipant &&
-      otherParticipant.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  });
-
-  const handleConversationPress = (conversationId: string) => {
-    router.push(`/(screens)/conversation/${conversationId}`);
+  // Format timestamp for message display
+  const formatMessageTime = (timestamp) => {
+    if (!timestamp) return '';
+    
+    const now = new Date();
+    const messageDate = timestamp instanceof Date ? timestamp : timestamp.toDate();
+    
+    // Same day - show time
+    if (messageDate.toDateString() === now.toDateString()) {
+      return messageDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    
+    // Within past week - show day of week
+    const daysAgo = Math.floor((now.getTime() - messageDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysAgo < 7) {
+      return messageDate.toLocaleDateString([], { weekday: 'short' });
+    }
+    
+    // Older - show date
+    return messageDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
-  const renderConversationItem = ({ item }) => {
-    const otherParticipant = item.participants.find(
-      (p) => p.id !== currentUser.id
-    );
-    const lastMessage = getLastMessage(item);
-    const unreadCount = item.messages.filter(
-      (m) => !m.read && m.senderId !== currentUser.id
-    ).length;
+  // Set up real-time listener for conversations
+  useEffect(() => {
+    setLoading(true);
+    const user = getCurrentUser();
+    setCurrentUser(user);
+    
+    if (!user?.uid) {
+      setError("You need to be logged in to view messages.");
+      setLoading(false);
+      return;
+    }
 
+    console.log("Setting up conversations listener for user:", user.uid);
+    
+    // Query all conversations where the current user is a participant
+    const conversationsRef = collection(db, CONVERSATIONS_COLLECTION);
+    const q = query(
+      conversationsRef,
+      where('participants', 'array-contains', user.uid),
+      // Remove the orderBy temporarily until index is created
+      // orderBy('lastMessageTimestamp', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+      try {
+        const conversationData = [];
+        
+        for (const doc of querySnapshot.docs) {
+          const data = doc.data();
+          
+          // Find the ID of the other participant
+          const otherUserId = data.participants.find(id => id !== user.uid);
+          if (!otherUserId) continue;
+          
+          // Get other user's profile
+          const otherUserProfile = await getUserProfile(otherUserId);
+          if (!otherUserProfile) continue;
+          
+          // Get the most recent message
+          const messagesRef = collection(db, CONVERSATIONS_COLLECTION, doc.id, MESSAGES_SUBCOLLECTION);
+          const messagesQuery = query(messagesRef, orderBy('timestamp', 'desc'), limit(1));
+          const messagesSnapshot = await getDocs(messagesQuery);
+          
+          let lastMessageInfo = {
+            text: null,
+            timestamp: data.lastMessageTimestamp || null, // Use conversation timestamp as fallback
+            senderId: data.lastMessageSenderId || null,
+            type: 'text', // Default to text
+            fileName: null,
+          };
+
+          if (!messagesSnapshot.empty) {
+            const messageDoc = messagesSnapshot.docs[0];
+            const messageData = messageDoc.data();
+            
+            lastMessageInfo.timestamp = messageData.timestamp || lastMessageInfo.timestamp;
+            lastMessageInfo.senderId = messageData.senderId || lastMessageInfo.senderId;
+            
+            if (messageData.imageUrl) {
+              lastMessageInfo.type = 'image';
+              lastMessageInfo.text = 'Photo'; // Placeholder text for image
+            } else if (messageData.fileUrl) {
+              lastMessageInfo.type = 'file';
+              lastMessageInfo.fileName = messageData.fileName || 'File';
+              lastMessageInfo.text = lastMessageInfo.fileName; // Use filename as text preview
+            } else {
+              lastMessageInfo.type = 'text';
+              lastMessageInfo.text = messageData.text || '';
+            }
+          }
+          
+          // Format the message preview
+          let previewText = 'No messages yet';
+          const isLastMessageFromCurrentUser = lastMessageInfo.senderId === user.uid;
+
+          if (lastMessageInfo.timestamp) {
+            if (lastMessageInfo.type === 'image') {
+              const imageName = lastMessageInfo.fileName || 'image.jpg';
+              previewText = `📷 ${imageName}`;
+            } else if (lastMessageInfo.type === 'file') {
+              const fileName = lastMessageInfo.fileName || 'File';
+              previewText = `📎 ${fileName}`;
+            } else if (lastMessageInfo.text) {
+              previewText = lastMessageInfo.text.length > 40 
+                ? lastMessageInfo.text.substring(0, 37) + '...' 
+                : lastMessageInfo.text;
+            } else {
+              previewText = 'New message received';
+            }
+
+            if (isLastMessageFromCurrentUser) {
+              if (lastMessageInfo.type === 'image' || lastMessageInfo.type === 'file') {
+                previewText = `You: ${previewText}`;
+              } else {
+                previewText = `You: ${previewText}`;
+              }
+            }
+          }
+          
+          // Create a conversation item with all relevant data
+          conversationData.push({
+            id: doc.id,
+            participants: data.participants,
+            otherUserId: otherUserId,
+            otherUserProfile: otherUserProfile,
+            lastMessageText: lastMessageInfo.text,
+            lastMessageTimestamp: lastMessageInfo.timestamp,
+            lastMessageSenderId: lastMessageInfo.senderId,
+            lastMessageType: lastMessageInfo.type,
+            lastMessageFileName: lastMessageInfo.fileName,
+            // We'll implement unread count later
+            unreadCount: 0
+          });
+        }
+        
+        // Sort conversations by the most recent message timestamp after fetching all data
+        conversationData.sort((a, b) => {
+          const timeA = a.lastMessageTimestamp?.toDate ? a.lastMessageTimestamp.toDate().getTime() : 0;
+          const timeB = b.lastMessageTimestamp?.toDate ? b.lastMessageTimestamp.toDate().getTime() : 0;
+          return timeB - timeA; // Descending order
+        });
+        
+        setConversations(conversationData);
+        setLoading(false);
+      } catch (err) {
+        console.error("Error processing conversations:", err);
+        setError("Failed to load conversations");
+        setLoading(false);
+      }
+    }, (err) => {
+      console.error("Error in conversations listener:", err);
+      setError("Failed to load conversations. Please check your connection.");
+      setLoading(false);
+    });
+    
+    // Clean up listener on unmount
+    return () => unsubscribe();
+  }, []);
+
+  // Filter conversations based on search
+  const filteredConversations = conversations.filter(conv => {
+    const name = `${conv.otherUserProfile?.basicInfo?.firstName || ''} ${conv.otherUserProfile?.basicInfo?.lastName || ''}`.trim();
+    return name.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  // Navigate to conversation
+  const handleConversationPress = (conversation) => {
+    try {
+      const otherUserId = conversation.otherUserId;
+      if (!otherUserId) {
+        console.error("Missing other user ID for conversation:", conversation.id);
+        return;
+      }
+      
+      // Use the router.push method with explicit screen path
+      router.push({
+        pathname: "/(screens)/conversation/[id]",
+        params: { id: otherUserId }
+      });
+    } catch (err) {
+      console.error("Navigation error:", err);
+    }
+  };
+
+  // Render a single conversation item
+  const renderConversationItem = ({ item }) => {
+    if (!currentUser?.uid) return null;
+    
+    const otherUserProfile = item.otherUserProfile;
+    if (!otherUserProfile) return null; // Should have profile if item exists
+
+    const firstName = otherUserProfile?.basicInfo?.firstName || 'User';
+    const lastName = otherUserProfile?.basicInfo?.lastName || '';
+    const photoURL = otherUserProfile?.photoURL || PLACEHOLDER_IMAGE_URI;
+    
+    // --- Format the preview text ---
+    let previewText = 'No messages yet'; // Default
+    const isLastMessageFromCurrentUser = item.lastMessageSenderId === currentUser.uid;
+
+    if (item.lastMessageTimestamp) { // Check if there's any message info
+      if (item.lastMessageType === 'image') {
+        // Format: "(You: )📷 filename.jpg"
+        const imageName = item.lastMessageFileName || 'image.jpg';
+        previewText = `📷 ${imageName}`;
+      } else if (item.lastMessageType === 'file') {
+        // Format: "(You: )📎 filename"
+        const fileName = item.lastMessageFileName || 'File';
+        previewText = `📎 ${fileName}`;
+      } else if (item.lastMessageText) {
+        // Truncate long text messages
+        previewText = item.lastMessageText.length > 40 
+          ? item.lastMessageText.substring(0, 37) + '...' 
+          : item.lastMessageText;
+      } else {
+        previewText = 'New message received'; // Fallback if text is missing but timestamp exists
+      }
+
+      // Add "You:" prefix BEFORE the icon for files and images
+      if (isLastMessageFromCurrentUser) {
+        if (item.lastMessageType === 'image' || item.lastMessageType === 'file') {
+          // For files and images, insert "You: " before the icon
+          previewText = `You: ${previewText}`;
+        } else {
+          // For text messages, keep the existing format
+          previewText = `You: ${previewText}`;
+        }
+      }
+    }
+    // --- End formatting preview text ---
+    
+    const messageTime = formatMessageTime(item.lastMessageTimestamp);
+    
     return (
       <TouchableOpacity
         style={styles.conversationItem}
-        onPress={() => handleConversationPress(item.id)}
+        onPress={() => handleConversationPress(item)}
       >
         <Image
-          source={{ uri: otherParticipant.image }}
+          source={{ uri: photoURL }}
           style={styles.avatar}
         />
         <View style={styles.conversationContent}>
           <View style={styles.conversationHeader}>
-            <Text style={styles.conversationName}>{otherParticipant.name}</Text>
-            <Text style={styles.conversationTime}>
-              {lastMessage ? formatMessageTime(lastMessage.timestamp) : ''}
-            </Text>
+            <Text style={styles.conversationName}>{firstName} {lastName}</Text>
+            {item.lastMessageTimestamp && (
+              <Text style={styles.conversationTime}>{messageTime}</Text>
+            )}
           </View>
           <View style={styles.conversationFooter}>
             <Text
               style={[
                 styles.lastMessage,
-                unreadCount > 0 && styles.unreadMessage,
+                item.unreadCount > 0 && styles.unreadMessage,
+                (item.lastMessageType === 'image' || item.lastMessageType === 'file') && styles.attachmentMessage
               ]}
               numberOfLines={1}
             >
-              {lastMessage ? lastMessage.text : 'No messages yet'}
+              {previewText}
             </Text>
-            {unreadCount > 0 && (
+            {item.unreadCount > 0 && (
               <View style={styles.unreadBadge}>
-                <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
+                <Text style={styles.unreadBadgeText}>{item.unreadCount}</Text>
               </View>
             )}
           </View>
@@ -81,6 +312,25 @@ export default function MessagesScreen() {
       </TouchableOpacity>
     );
   };
+
+  // Loading state
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0891b2" />
+        <Text style={styles.loadingText}>Loading conversations...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <SafeAreaView style={styles.emptyContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -108,7 +358,7 @@ export default function MessagesScreen() {
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyTitle}>No messages yet</Text>
           <Text style={styles.emptyText}>
-            When you match with others, your conversations will appear here.
+            When you match with others and start chatting, your conversations will appear here.
           </Text>
         </View>
       ) : (
@@ -126,6 +376,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1A1A1A',
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#1A1A1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#9ca3af',
+    fontSize: 16,
+  },
+  errorText: {
+    color: '#ef4444',
+    fontSize: 16,
+    textAlign: 'center',
   },
   header: {
     paddingHorizontal: 20,
@@ -167,6 +433,7 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     marginRight: 15,
+    backgroundColor: '#333', // Placeholder background
   },
   conversationContent: {
     flex: 1,
@@ -201,7 +468,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   unreadBadge: {
-    backgroundColor: '#FFD700',
+    backgroundColor: '#0891b2',
     borderRadius: 10,
     width: 20,
     height: 20,
@@ -210,7 +477,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   unreadBadgeText: {
-    color: '#000',
+    color: '#FFF',
     fontSize: 12,
     fontWeight: 'bold',
   },
@@ -230,5 +497,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#888888',
     textAlign: 'center',
+  },
+  attachmentMessage: {
+    color: '#9ca3af', // Slightly muted color for attachments
   },
 });

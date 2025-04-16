@@ -1,9 +1,10 @@
 export interface LocationPreference {
-  city: string;
-  state?: string;
-  zipCode?: string;
-  radius?: number; // in miles
-  nearCampus?: boolean;
+  nearCampus: boolean;
+  description: string | null; // Store the selected place description
+  latitude?: number;         // Optional latitude
+  longitude?: number;        // Optional longitude
+  radius: number | null;     // Keep radius (nullable for when none is selected)
+  // Removed city, state, zipCode
 }
 
 export interface RoomType {
@@ -37,18 +38,21 @@ export interface SearchFilters {
   };
   roomType: RoomType;
   lifestyle: LifestylePreference;
+  genderPreference: 'Male' | 'Female' | 'Any';
 }
 
-// Default filters
+// Update defaultFilters location structure
 export const defaultFilters: SearchFilters = {
   budgetRange: {
     min: 500,
     max: 2000,
   },
   location: {
-    city: '',
-    radius: 10,
     nearCampus: false,
+    description: null,      // Use description instead of city
+    radius: null,           // Default radius to null
+    latitude: undefined,    // Add latitude
+    longitude: undefined,   // Add longitude
   },
   moveInDates: {
     earliest: new Date(),
@@ -69,9 +73,10 @@ export const defaultFilters: SearchFilters = {
     visitors: null,
     cleanliness: null,
   },
+  genderPreference: 'Any',
 };
 
-// Mock data for saved filters
+// Update savedFilters mock data structure
 export const savedFilters: SearchFilters[] = [
   {
     id: '1',
@@ -81,9 +86,13 @@ export const savedFilters: SearchFilters[] = [
       max: 900,
     },
     location: {
-      city: 'Austin',
+      // Replace city with description
+      description: 'Near UT Austin Campus, Austin, TX, USA',
       radius: 2,
       nearCampus: true,
+      // Optionally add mock coordinates
+      // latitude: 30.2849,
+      // longitude: -97.7341
     },
     moveInDates: {
       earliest: new Date('2024-08-01'),
@@ -104,6 +113,7 @@ export const savedFilters: SearchFilters[] = [
       visitors: null,
       cleanliness: 4,
     },
+    genderPreference: 'Any',
   },
   {
     id: '2',
@@ -113,9 +123,13 @@ export const savedFilters: SearchFilters[] = [
       max: 1800,
     },
     location: {
-      city: 'Austin',
+      // Replace city with description
+      description: 'Downtown Austin, Austin, TX, USA',
       radius: 5,
       nearCampus: false,
+      // Optionally add mock coordinates
+      // latitude: 30.2672,
+      // longitude: -97.7431
     },
     moveInDates: {
       earliest: new Date('2024-07-01'),
@@ -136,6 +150,7 @@ export const savedFilters: SearchFilters[] = [
       visitors: true,
       cleanliness: 3,
     },
+    genderPreference: 'Any',
   },
 ];
 
@@ -146,7 +161,7 @@ export const saveFilter = (filter: SearchFilters, name: string): SearchFilters =
     id: Date.now().toString(),
     name,
   };
-  
+
   // In a real app, you would save this to Firebase
   // For now, we'll just return the new filter
   return newFilter;
@@ -157,4 +172,4 @@ export const applyFilters = (filters: SearchFilters) => {
   // This would connect to your backend to fetch filtered results
   console.log('Applying filters:', filters);
   return [];
-}; 
+};

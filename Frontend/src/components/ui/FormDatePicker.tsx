@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Calendar } from 'lucide-react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 interface FormDatePickerProps {
   label: string;
-  value: Date;
+  value: Date | string | null | undefined;
   onChange: (date: Date) => void;
   error?: string;
   minimumDate?: Date;
@@ -21,84 +21,54 @@ export function FormDatePicker({
   minimumDate,
   maximumDate,
 }: FormDatePickerProps) {
-  const [show, setShow] = useState(false);
-  const [tempDate, setTempDate] = useState(value);
+  const [showPicker, setShowPicker] = useState(false);
 
-  const handleChange = (event: any, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-      setShow(false);
+  const getValidDate = (incomingValue: any): Date | null => {
+    if (incomingValue instanceof Date && isValid(incomingValue)) {
+      return incomingValue;
     }
+    return null;
+  };
 
-    if (selectedDate) {
-      setTempDate(selectedDate);
-      if (Platform.OS === 'ios') {
-        // On iOS, we'll keep the modal open until the user confirms
-        return;
+  const currentDate = getValidDate(value) || new Date();
+  const formattedDate = getValidDate(value) ? format(currentDate, 'MMMM dd, yyyy') : 'Select a date';
+
+  const handlePress = () => {
+    setShowPicker(true);
+  };
+
+  const onPickerChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
+    setShowPicker(false);
+
+    if (event.type === 'set' && selectedDate) {
+      const validSelectedDate = new Date(selectedDate);
+      if (isValid(validSelectedDate)) {
+        onChange(validSelectedDate);
       }
-      onChange(selectedDate);
+    } else {
+      // User cancelled (event.type === 'dismissed')
     }
-  };
-
-  const handleConfirm = () => {
-    onChange(tempDate);
-    setShow(false);
-  };
-
-  const handleCancel = () => {
-    setTempDate(value);
-    setShow(false);
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.label}>{label}</Text>
-      <TouchableOpacity
-        style={[styles.button, error && styles.buttonError]}
-        onPress={() => setShow(true)}
-      >
-        <Text style={styles.valueText}>{format(value, 'MMMM dd, yyyy')}</Text>
+      <TouchableOpacity style={styles.button} onPress={handlePress}>
+        <Text style={styles.valueText}>{formattedDate}</Text>
         <Calendar size={20} color="#FFFFFF" />
       </TouchableOpacity>
       {error && <Text style={styles.errorText}>{error}</Text>}
 
-      {Platform.OS === 'ios' ? (
-        <Modal visible={show} transparent animationType="slide">
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>{label}</Text>
-              <DateTimePicker
-                value={tempDate}
-                mode="date"
-                display="spinner"
-                onChange={handleChange}
-                minimumDate={minimumDate}
-                maximumDate={maximumDate}
-              />
-              <View style={styles.modalButtons}>
-                <TouchableOpacity style={styles.modalButton} onPress={handleCancel}>
-                  <Text style={styles.modalButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.confirmButton]}
-                  onPress={handleConfirm}
-                >
-                  <Text style={styles.confirmButtonText}>Confirm</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      ) : (
-        show && (
-          <DateTimePicker
-            value={tempDate}
-            mode="date"
-            display="default"
-            onChange={handleChange}
-            minimumDate={minimumDate}
-            maximumDate={maximumDate}
-          />
-        )
+      {showPicker && (
+        <DateTimePicker
+          testID="dateTimePicker"
+          value={currentDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={onPickerChange}
+          minimumDate={minimumDate}
+          maximumDate={maximumDate}
+        />
       )}
     </View>
   );
@@ -134,48 +104,5 @@ const styles = StyleSheet.create({
     color: '#FF4444',
     fontSize: 14,
     marginTop: 4,
-  },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  modalContent: {
-    backgroundColor: '#1A1A1A',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-  },
-  modalTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-  },
-  modalButton: {
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: '#333',
-    flex: 1,
-    marginHorizontal: 5,
-    alignItems: 'center',
-  },
-  modalButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-  },
-  confirmButton: {
-    backgroundColor: '#FFD700',
-  },
-  confirmButtonText: {
-    color: '#000000',
-    fontWeight: 'bold',
-    fontSize: 16,
   },
 }); 

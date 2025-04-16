@@ -1,145 +1,160 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { formatCurrency } from '../../src/utils/formatters';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Image,
+  SafeAreaView,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+} from 'react-native';
+import { Stack, useRouter } from 'expo-router';
+import { getCurrentUser } from '../../src/firebase/auth';
+import {
+  collection,
+  query,
+  onSnapshot,
+  doc,
+  orderBy,
+} from 'firebase/firestore';
+import { db } from '../../src/firebase/config';
+import { getMatchedUserProfiles } from '../../src/firebase/firestore';
+import { UserProfileData } from '../../src/types/profile';
 
-// Mock data for search results
-const mockResults = [
-  {
-    id: '1',
-    name: 'Michael Chen',
-    age: 24,
-    occupation: 'Software Engineer',
-    photo: 'https://randomuser.me/api/portraits/men/32.jpg',
-    location: 'Downtown, Austin',
-    price: 1200,
-    moveInDate: 'Jun 1, 2024',
-    compatibility: 92,
-    distance: 2.4,
-  },
-  {
-    id: '2',
-    name: 'Sarah Johnson',
-    age: 26,
-    occupation: 'Graphic Designer',
-    photo: 'https://randomuser.me/api/portraits/women/44.jpg',
-    location: 'East Austin',
-    price: 950,
-    moveInDate: 'Jul 15, 2024',
-    compatibility: 87,
-    distance: 3.8,
-  },
-  {
-    id: '3',
-    name: 'David Kim',
-    age: 23,
-    occupation: 'Student',
-    photo: 'https://randomuser.me/api/portraits/men/22.jpg',
-    location: 'Near Campus',
-    price: 850,
-    moveInDate: 'Aug 1, 2024',
-    compatibility: 79,
-    distance: 0.7,
-  },
-  {
-    id: '4',
-    name: 'Olivia Martinez',
-    age: 25,
-    occupation: 'Nurse',
-    photo: 'https://randomuser.me/api/portraits/women/57.jpg',
-    location: 'South Austin',
-    price: 1100,
-    moveInDate: 'Jun 15, 2024',
-    compatibility: 82,
-    distance: 5.2,
-  },
-  {
-    id: '5',
-    name: 'James Wilson',
-    age: 27,
-    occupation: 'Marketing Manager',
-    photo: 'https://randomuser.me/api/portraits/men/52.jpg',
-    location: 'North Austin',
-    price: 1300,
-    moveInDate: 'Jul 1, 2024',
-    compatibility: 85,
-    distance: 4.6,
-  },
-];
+const PLACEHOLDER_IMAGE_URI = 'https://via.placeholder.com/100/374151/e5e7eb?text=No+Pic';
+const MATCHES_COLLECTION = 'matches';
 
 export default function ResultsScreen() {
   const router = useRouter();
-  const [results] = useState(mockResults);
-  
-  const renderResultItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.resultCard}
-      onPress={() => {
-        // In a real app, navigate to profile detail
-        console.log('View profile:', item.id);
-      }}
-    >
-      <Image source={{ uri: item.photo }} style={styles.profileImage} />
-      <View style={styles.resultInfo}>
-        <View style={styles.nameContainer}>
-          <Text style={styles.name}>{item.name}, {item.age}</Text>
-          <View style={styles.compatibilityBadge}>
-            <Text style={styles.compatibilityText}>{item.compatibility}%</Text>
-          </View>
+  const [matches, setMatches] = useState<UserProfileData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    const currentUser = getCurrentUser();
+
+    if (!currentUser?.uid) {
+      console.log("Results: No current user found for listener.");
+      setError("You need to be logged in to see matches.");
+      setLoading(false);
+      return;
+    }
+
+    console.log(`Results: Setting up match listener for user ${currentUser.uid}`);
+    const matchesSubcollectionRef = collection(db, MATCHES_COLLECTION, currentUser.uid, 'userMatches');
+    const q = query(matchesSubcollectionRef, orderBy('matchedAt', 'desc'));
+
+    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+      console.log(`Results listener: Received update with ${querySnapshot.size} match documents.`);
+      const matchIds: string[] = [];
+      querySnapshot.forEach((doc) => {
+        matchIds.push(doc.id);
+      });
+
+      console.log("Results listener: Match IDs found:", matchIds);
+
+      if (matchIds.length > 0) {
+        try {
+          const matchedProfiles = await getMatchedUserProfiles(matchIds);
+          console.log(`Results listener: Fetched ${matchedProfiles.length} profiles.`);
+          setMatches(matchedProfiles);
+          setError(null);
+        } catch (profileError) {
+          console.error("Results listener: Error fetching matched profiles:", profileError);
+          setError("Failed to load profile details for matches.");
+          setMatches([]);
+        }
+      } else {
+        console.log("Results listener: No match IDs found, clearing matches.");
+        setMatches([]);
+      }
+      setLoading(false);
+    }, (err) => {
+      console.error("Results listener: Error:", err);
+      setError("Failed to listen for matches. Please try again later.");
+      setLoading(false);
+      setMatches([]);
+    });
+
+    return () => {
+      console.log("Results: Unsubscribing match listener.");
+      unsubscribe();
+    };
+
+  }, []);
+
+  const handleMatchPress = (profile: UserProfileData) => {
+    if (!profile.id) {
+      Alert.alert("Error", "Cannot start conversation with this match. Missing profile ID.");
+      return;
+    }
+    console.log("Navigating to conversation with match:", profile.id);
+    router.push(`/conversation/${profile.id}`);
+  };
+
+  const renderMatchItem = ({ item }: { item: UserProfileData }) => {
+    const displayName = `${item.basicInfo?.firstName || ''} ${item.basicInfo?.lastName || ''}`.trim() || 'Matched User';
+    const profileImageUrl = item.photoURL || PLACEHOLDER_IMAGE_URI;
+    const matchOccupation = item.basicInfo?.occupation || 'Unknown Occupation';
+
+    return (
+      <TouchableOpacity
+        style={styles.matchCard}
+        onPress={() => handleMatchPress(item)}
+      >
+        <Image source={{ uri: profileImageUrl }} style={styles.profileImage} />
+        <View style={styles.matchInfo}>
+          <Text style={styles.name}>{displayName}</Text>
+          <Text style={styles.occupation}>{matchOccupation}</Text>
+          <Text style={styles.messagePreview}>Tap to chat!</Text>
         </View>
-        <Text style={styles.occupation}>{item.occupation}</Text>
-        
-        <View style={styles.detailsContainer}>
-          <View style={styles.detailItem}>
-            <Ionicons name="location-outline" size={16} color="#ccc" />
-            <Text style={styles.detailText}>{item.location}</Text>
-          </View>
-          <View style={styles.detailItem}>
-            <Ionicons name="cash-outline" size={16} color="#ccc" />
-            <Text style={styles.detailText}>{formatCurrency(item.price)}/mo</Text>
-          </View>
-          <View style={styles.detailItem}>
-            <Ionicons name="calendar-outline" size={16} color="#ccc" />
-            <Text style={styles.detailText}>{item.moveInDate}</Text>
-          </View>
-          <View style={styles.detailItem}>
-            <Ionicons name="navigate-outline" size={16} color="#ccc" />
-            <Text style={styles.detailText}>{item.distance} miles away</Text>
-          </View>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#0891b2" />
+        <Text style={styles.loadingText}>Loading Matches...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.centerContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
+      <Stack.Screen options={{ title: 'Matches' }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Search Results</Text>
-        <TouchableOpacity>
-          <Ionicons name="options-outline" size={24} color="#fff" />
-        </TouchableOpacity>
+         <Text style={styles.headerTitle}>Your Matches</Text>
       </View>
 
-      <View style={styles.resultsHeader}>
-        <Text style={styles.resultsCount}>{results.length} results found</Text>
-        <TouchableOpacity style={styles.sortButton}>
-          <Ionicons name="swap-vertical-outline" size={18} color="#ccc" />
-          <Text style={styles.sortButtonText}>Sort</Text>
-        </TouchableOpacity>
-      </View>
-
-      <FlatList
-        data={results}
-        renderItem={renderResultItem}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.resultsList}
-        showsVerticalScrollIndicator={false}
-      />
-    </View>
+      {matches.length === 0 ? (
+         <View style={styles.centerContainer}>
+           <Text style={styles.emptyText}>No matches yet.</Text>
+           <Text style={styles.emptySubText}>Keep discovering to find potential roommates!</Text>
+         </View>
+       ) : (
+        <FlatList
+          data={matches}
+          renderItem={renderMatchItem}
+          keyExtractor={(item) => item.id || Math.random().toString()}
+          contentContainerStyle={styles.listContent}
+        />
+       )}
+    </SafeAreaView>
   );
 }
 
@@ -149,98 +164,91 @@ const styles = StyleSheet.create({
     backgroundColor: '#121212',
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 60,
-    paddingBottom: 16,
-    backgroundColor: '#1A1A1A',
+     paddingHorizontal: 20,
+     paddingVertical: 15,
+     borderBottomWidth: 1,
+     borderBottomColor: '#333',
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
+     fontSize: 24,
+     fontWeight: 'bold',
+     color: '#FFFFFF',
   },
-  resultsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  listContent: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    paddingTop: 16,
+    paddingBottom: 20,
   },
-  resultsCount: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  sortButton: {
+  matchCard: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  sortButtonText: {
-    color: '#ccc',
-    marginLeft: 4,
-  },
-  resultsList: {
+    backgroundColor: '#1f2937',
     padding: 16,
-  },
-  resultCard: {
-    flexDirection: 'row',
-    backgroundColor: '#232323',
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.20,
+    shadowRadius: 1.41,
+    elevation: 2,
   },
   profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 8,
-    marginRight: 12,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#374151',
+    marginRight: 16,
+    borderWidth: 1,
+    borderColor: '#4b5563',
   },
-  resultInfo: {
+  matchInfo: {
     flex: 1,
-  },
-  nameContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
+    justifyContent: 'center',
   },
   name: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  compatibilityBadge: {
-    backgroundColor: '#FFD700',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  compatibilityText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 4,
   },
   occupation: {
     fontSize: 14,
-    color: '#ccc',
+    color: '#9ca3af',
+    marginBottom: 6,
+  },
+  messagePreview: {
+    fontSize: 14,
+    color: '#60a5fa',
+    fontWeight: '500',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#9ca3af',
+    marginTop: 10,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#ef4444',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#9ca3af',
     marginBottom: 8,
   },
-  detailsContainer: {
-    flex: 1,
-  },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  detailText: {
-    fontSize: 13,
-    color: '#ccc',
-    marginLeft: 6,
+   emptySubText: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
   },
 }); 
