@@ -1,27 +1,34 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
 import { SwipeableCard } from './SwipeableCard';
-import { ThumbsUp, ThumbsDown } from 'lucide-react-native';
+import { Check, X, RefreshCw } from 'lucide-react-native';
 
-// These will be replaced with real user profile types later
-type UserProfile = {
-  id: string;
-  name: string;
-  age: number;
-  occupation: string;
-  bio: string;
-  images: string[];
-  distance?: number;
-  interests?: string[];
-};
+// Use your actual profile data type
+interface UserProfileData {
+  id?: string;
+  basicInfo?: { 
+    firstName?: string; 
+    lastName?: string; 
+    age?: number; 
+  };
+  preferences?: { 
+    location?: string; 
+    budget?: { min?: number; max?: number }; 
+  };
+  photoURL?: string | null;
+  [key: string]: any;
+}
 
 interface SwipeableDeckProps {
-  profiles: UserProfile[];
-  onSwipeLeft: (profile: UserProfile) => void;
-  onSwipeRight: (profile: UserProfile) => void;
+  profiles: UserProfileData[];
+  onSwipeLeft: (profile: UserProfileData) => void;
+  onSwipeRight: (profile: UserProfileData) => void;
   onDeckEmpty: () => void;
   onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 export const SwipeableDeck: React.FC<SwipeableDeckProps> = ({
   profiles,
@@ -29,6 +36,7 @@ export const SwipeableDeck: React.FC<SwipeableDeckProps> = ({
   onSwipeRight,
   onDeckEmpty,
   onRefresh,
+  isRefreshing = false,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
@@ -46,58 +54,83 @@ export const SwipeableDeck: React.FC<SwipeableDeckProps> = ({
     }
   }, [currentIndex, profiles, onDeckEmpty]);
 
-  const handleSwipeLeft = useCallback((profile: UserProfile) => {
+  const handleSwipeLeft = useCallback((profile: UserProfileData) => {
     setCurrentIndex(prev => prev + 1);
     onSwipeLeft(profile);
   }, [onSwipeLeft]);
 
-  const handleSwipeRight = useCallback((profile: UserProfile) => {
+  const handleSwipeRight = useCallback((profile: UserProfileData) => {
     setCurrentIndex(prev => prev + 1);
     onSwipeRight(profile);
   }, [onSwipeRight]);
 
-  // Simplified rendering - we won't render any placeholder UI here
-  // The empty state is now fully handled by the HomeScreen
+  // Manual controls for swiping
+  const handleManualSwipeLeft = () => {
+    if (profiles.length > 0 && currentIndex < profiles.length) {
+      handleSwipeLeft(profiles[currentIndex]);
+    }
+  };
+
+  const handleManualSwipeRight = () => {
+    if (profiles.length > 0 && currentIndex < profiles.length) {
+      handleSwipeRight(profiles[currentIndex]);
+    }
+  };
+
+  // If no profiles or all profiles swiped
   if (!profiles || profiles.length === 0 || currentIndex >= profiles.length) {
-    return null;
+    return (
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>No more profiles to show</Text>
+        {onRefresh && (
+          <TouchableOpacity style={styles.refreshButton} onPress={onRefresh} disabled={isRefreshing}>
+            {isRefreshing ? (
+              <ActivityIndicator color="#0891b2" />
+            ) : (
+              <>
+                <RefreshCw size={20} color="#fff" style={styles.refreshIcon} />
+                <Text style={styles.refreshText}>Find More Roommates</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+      </View>
+    );
   }
 
+  // Render the cards and controls
   return (
     <View style={styles.container}>
-      {/* Next card (shown underneath current card) */}
-      {currentIndex + 1 < profiles.length && (
-        <SwipeableCard
-          key={`next-${profiles[currentIndex + 1].id}`}
-          profile={profiles[currentIndex + 1]}
-          onSwipeLeft={handleSwipeLeft}
-          onSwipeRight={handleSwipeRight}
-          isFirst={false}
-        />
-      )}
+      {/* Container for the swipeable cards */}
+      <View style={styles.deckContainer}>
+        {profiles
+          .slice(currentIndex, currentIndex + 3)
+          .reverse()
+          .map((profile, index) => (
+            <SwipeableCard
+              key={profile.id || `deck-${currentIndex + index}`}
+              profile={profile}
+              onSwipeLeft={handleSwipeLeft}
+              onSwipeRight={handleSwipeRight}
+              isFirst={index === profiles.slice(currentIndex, currentIndex + 3).length - 1}
+            />
+          ))}
+      </View>
 
-      {/* Current card (the one user interacts with) */}
-      <SwipeableCard
-        key={`current-${profiles[currentIndex].id}`}
-        profile={profiles[currentIndex]}
-        onSwipeLeft={handleSwipeLeft}
-        onSwipeRight={handleSwipeRight}
-        isFirst={true}
-      />
-
-      {/* Bottom action buttons */}
-      <View style={styles.actionButtons}>
+      {/* Control buttons */}
+      <View style={styles.controls}>
         <TouchableOpacity
-          style={[styles.button, styles.nopeButton]}
-          onPress={() => handleSwipeLeft(profiles[currentIndex])}
+          style={[styles.button, styles.noButton]}
+          onPress={handleManualSwipeLeft}
         >
-          <ThumbsDown size={30} color="#F44336" />
+          <X size={35} color="#F44336" strokeWidth={3} />
         </TouchableOpacity>
-
+        
         <TouchableOpacity
-          style={[styles.button, styles.likeButton]}
-          onPress={() => handleSwipeRight(profiles[currentIndex])}
+          style={[styles.button, styles.yesButton]}
+          onPress={handleManualSwipeRight}
         >
-          <ThumbsUp size={30} color="#4CAF50" />
+          <Check size={35} color="#4CAF50" strokeWidth={3} />
         </TouchableOpacity>
       </View>
     </View>
@@ -107,17 +140,25 @@ export const SwipeableDeck: React.FC<SwipeableDeckProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingBottom: 120, // Allow space for the action buttons
+    paddingHorizontal: 10,
   },
-  actionButtons: {
-    position: 'absolute',
-    bottom: 50,
+  deckContainer: {
+    flex: 1,
     width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxHeight: SCREEN_HEIGHT * 0.7,
+    position: 'relative',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  controls: {
     flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    paddingHorizontal: 50,
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    width: '70%',
+    paddingBottom: 30,
   },
   button: {
     width: 70,
@@ -125,20 +166,45 @@ const styles = StyleSheet.create({
     borderRadius: 35,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#2C2C2E',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
     shadowRadius: 4,
-    elevation: 5,
+    elevation: 6,
+    borderWidth: 2,
   },
-  nopeButton: {
-    backgroundColor: 'white',
-    borderWidth: 1,
+  noButton: {
     borderColor: '#F44336',
   },
-  likeButton: {
-    backgroundColor: 'white',
-    borderWidth: 1,
+  yesButton: {
     borderColor: '#4CAF50',
   },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#9ca3af',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  refreshButton: {
+    backgroundColor: '#0891b2',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  refreshIcon: {
+    marginRight: 10,
+  },
+  refreshText: {
+    color: '#ffffff',
+    fontSize: 16,
+  }
 });

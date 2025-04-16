@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, PanResponder } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, usePathname } from 'expo-router';
-import { useSecondaryTabs } from '../../context/SecondaryTabsContext';
+import { useSecondaryTabs } from '../../contexts/SecondaryTabsContext';
 
 export default function SecondaryNavigationSheet() {
   const router = useRouter();

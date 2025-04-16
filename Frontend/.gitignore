@@ -1,3 +1,6 @@
+# Secrets and Configuration
+.env
+
 # dependencies
 node_modules/
 

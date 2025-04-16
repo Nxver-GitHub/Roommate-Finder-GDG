@@ -1,16 +1,14 @@
-import { Stack } from 'expo-router';
+import { Stack } from "expo-router";
+import React from "react";
 
 export default function ConversationLayout() {
   return (
-    <Stack>
-      <Stack.Screen 
-        name="[id]" 
-        options={{
-          headerShown: true,
-          headerBackTitle: 'Back',
-        }} 
-      />
-      {/* No other screens in this stack */}
-    </Stack>
+    <Stack
+      screenOptions={{
+        headerShown: false, // Hide the default header
+        animation: "slide_from_right", // Smooth animation
+        contentStyle: { backgroundColor: '#121212' }, // Dark background
+      }}
+    />
   );
 } 

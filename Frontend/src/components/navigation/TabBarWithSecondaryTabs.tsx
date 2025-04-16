@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { useSecondaryTabs } from '../../context/SecondaryTabsContext';
+import { useSecondaryTabs } from '../../contexts/SecondaryTabsContext';
 import SecondaryTabs from './SecondaryTabs';
 
 export default function TabBarWithSecondaryTabs(props: BottomTabBarProps) {

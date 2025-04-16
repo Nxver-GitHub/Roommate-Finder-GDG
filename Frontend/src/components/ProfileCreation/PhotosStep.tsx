@@ -4,6 +4,8 @@ import { useProfileCreation } from '../../contexts/ProfileCreationContext';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { Plus, X, Camera, Upload, Check } from 'lucide-react-native';
+import { setUserProfile } from '../../firebase/firestore';
+import { getCurrentUser } from '../../firebase/auth';
 
 export function PhotosStep() {
   const { formData, updateFormData, setCurrentStep } = useProfileCreation();
@@ -68,17 +70,43 @@ export function PhotosStep() {
     setCurrentStep(2); // Go back to lifestyle
   };
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
     if (photos.length === 0) {
       setError('Please add at least one photo to continue');
       return;
     }
 
-    // In a real app, you would submit the completed profile to your backend here
-    console.log('Profile creation complete!', formData);
-    
-    // For now, navigate back to the main app
-    router.replace('/(screens)/');
+    // Start loading indicator
+    setLoading(true);
+    setError(''); // Clear previous errors
+
+    try {
+      const user = getCurrentUser();
+      
+      if (!user) {
+        setError('Error: Not logged in. Cannot save profile.');
+        setLoading(false);
+        return;
+      }
+
+      // Prepare the final data object
+      const finalProfileData = {
+        ...formData, // Spread existing data
+        photos: photos,
+        isProfileComplete: true // This is crucial!
+      };
+
+      // Save the complete profile data to Firestore
+      await setUserProfile(user.uid, finalProfileData);
+
+      console.log("Profile creation complete and saved to Firebase!");
+      router.replace('/(screens)/');
+
+    } catch (err) {
+      console.error('Error saving profile:', err);
+      setError('Failed to save profile. Please try again.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -107,7 +135,7 @@ export function PhotosStep() {
             onPress={() => pickImage(false)}
             disabled={loading}
           >
-            {loading ? (
+            {loading && photos.length < 5 ? (
               <ActivityIndicator color="#FFD700" />
             ) : (
               <>
@@ -145,6 +173,7 @@ export function PhotosStep() {
         <TouchableOpacity
           style={[styles.button, styles.backButton]}
           onPress={handleBack}
+          disabled={loading}
         >
           <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
@@ -152,13 +181,16 @@ export function PhotosStep() {
           style={[
             styles.button,
             styles.nextButton,
-            photos.length === 0 && styles.disabledButton,
+            (photos.length === 0 || loading) && styles.disabledButton,
           ]}
           onPress={handleComplete}
-          disabled={photos.length === 0}
+          disabled={photos.length === 0 || loading}
         >
+          {loading ? (
+             <ActivityIndicator color="#000000" size="small" style={{marginRight: 8}} />
+          ) : null}
           <Text style={styles.nextButtonText}>Complete Profile</Text>
-          <Check size={20} color="#000000" />
+          {!loading && <Check size={20} color="#000000" />} 
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -229,6 +261,7 @@ const styles = StyleSheet.create({
     color: '#FF4444',
     fontSize: 14,
     marginVertical: 8,
+    textAlign: 'center',
   },
   optionsContainer: {
     marginBottom: 24,

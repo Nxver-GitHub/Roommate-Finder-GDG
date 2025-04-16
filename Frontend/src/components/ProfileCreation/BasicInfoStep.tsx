@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Text } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Text, KeyboardAvoidingView, Platform } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { useProfileCreation } from '../../contexts/ProfileCreationContext';
 import { FormInput } from '../ui/FormInput';
@@ -14,7 +14,8 @@ const schema = yup.object().shape({
     .number()
     .required('Age is required')
     .min(18, 'Must be at least 18 years old')
-    .max(100, 'Invalid age'),
+    .max(100, 'Invalid age')
+    .typeError('Age must be a number'),
   gender: yup.string().required('Gender is required'),
   occupation: yup.string().required('Occupation is required'),
   bio: yup
@@ -54,111 +55,130 @@ export function BasicInfoStep() {
     updateFormData({
       basicInfo: {
         ...data,
-        age: parseInt(data.age, 10),
+        age: parseInt(data.age, 10) || 0,
       },
     });
-    setCurrentStep(1); // Move to next step
+    setCurrentStep(1);
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Controller
-        control={control}
-        name="firstName"
-        render={({ field: { onChange, value } }) => (
-          <FormInput
-            label="First Name"
-            value={value}
-            onChangeText={onChange}
-            error={errors.firstName?.message}
-            placeholder="Enter your first name"
-          />
-        )}
-      />
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <ScrollView 
+        style={styles.container} 
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Controller
+          control={control}
+          name="firstName"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <FormInput
+              label="First Name"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.firstName?.message}
+              placeholder="Enter your first name"
+            />
+          )}
+        />
 
-      <Controller
-        control={control}
-        name="lastName"
-        render={({ field: { onChange, value } }) => (
-          <FormInput
-            label="Last Name"
-            value={value}
-            onChangeText={onChange}
-            error={errors.lastName?.message}
-            placeholder="Enter your last name"
-          />
-        )}
-      />
+        <Controller
+          control={control}
+          name="lastName"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <FormInput
+              label="Last Name"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.lastName?.message}
+              placeholder="Enter your last name"
+            />
+          )}
+        />
 
-      <Controller
-        control={control}
-        name="age"
-        render={({ field: { onChange, value } }) => (
-          <FormInput
-            label="Age"
-            value={value}
-            onChangeText={onChange}
-            error={errors.age?.message}
-            placeholder="Enter your age"
-            keyboardType="numeric"
-          />
-        )}
-      />
+        <Controller
+          control={control}
+          name="age"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <FormInput
+              label="Age"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.age?.message}
+              placeholder="Enter your age"
+              keyboardType="numeric"
+            />
+          )}
+        />
 
-      <Controller
-        control={control}
-        name="gender"
-        render={({ field: { onChange, value } }) => (
-          <FormSelect
-            label="Gender"
-            value={value}
-            options={genderOptions}
-            onSelect={onChange}
-            error={errors.gender?.message}
-          />
-        )}
-      />
+        <Controller
+          control={control}
+          name="gender"
+          render={({ field: { onChange, value } }) => (
+            <FormSelect
+              label="Gender"
+              value={value}
+              options={genderOptions}
+              onSelect={onChange}
+              error={errors.gender?.message}
+            />
+          )}
+        />
 
-      <Controller
-        control={control}
-        name="occupation"
-        render={({ field: { onChange, value } }) => (
-          <FormInput
-            label="Occupation"
-            value={value}
-            onChangeText={onChange}
-            error={errors.occupation?.message}
-            placeholder="Enter your occupation"
-          />
-        )}
-      />
+        <Controller
+          control={control}
+          name="occupation"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <FormInput
+              label="Occupation"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.occupation?.message}
+              placeholder="Enter your occupation"
+            />
+          )}
+        />
 
-      <Controller
-        control={control}
-        name="bio"
-        render={({ field: { onChange, value } }) => (
-          <FormInput
-            label="Bio"
-            value={value}
-            onChangeText={onChange}
-            error={errors.bio?.message}
-            placeholder="Tell potential roommates about yourself..."
-            multiline
-            numberOfLines={4}
-          />
-        )}
-      />
+        <Controller
+          control={control}
+          name="bio"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <FormInput
+              label="Bio"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.bio?.message}
+              placeholder="Tell potential roommates about yourself..."
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+              inputStyle={styles.bioInput}
+            />
+          )}
+        />
 
-      <TouchableOpacity style={styles.button} onPress={handleSubmit(onSubmit)}>
-        <Text style={styles.buttonText}>Next Step</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        <TouchableOpacity style={styles.button} onPress={handleSubmit(onSubmit)}>
+          <Text style={styles.buttonText}>Next Step</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  bioInput: {
+    height: 120,
   },
   button: {
     backgroundColor: '#FFD700',

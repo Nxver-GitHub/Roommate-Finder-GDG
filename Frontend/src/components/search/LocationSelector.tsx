@@ -1,7 +1,18 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Switch, TouchableOpacity, ScrollView } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React from 'react';
+import { View, Text, StyleSheet, Switch, TouchableOpacity } from 'react-native';
 import { LocationPreference } from '../../services/searchService';
+import { FormLocationInput, LocationData } from '../../components/ui/FormLocationInput';
+
+// Define UCSC campus location details
+const UCSC_LOCATION: LocationData = {
+  description: "University of California Santa Cruz, High Street, Santa Cruz, CA, USA",
+  latitude: 36.9916,
+  longitude: -122.0583,
+  placeId: "ChIJd5aP0k7ljYARZbfMCVGjzFY", // This is Google's PlaceID for UCSC
+};
+
+// Default radius when "near campus" is enabled
+const DEFAULT_NEAR_CAMPUS_RADIUS = 2; // 2 miles
 
 interface LocationSelectorProps {
   value: LocationPreference;
@@ -9,48 +20,77 @@ interface LocationSelectorProps {
 }
 
 export default function LocationSelector({ value, onChange }: LocationSelectorProps) {
-  const [showCityInput, setShowCityInput] = useState(!!value.city);
-  
   const radiusOptions = [1, 2, 5, 10, 15, 25, 50];
   
+  const handleLocationSelect = (locationData: LocationData) => {
+    console.log("Location selected in LocationSelector:", locationData);
+    onChange({
+      ...value,
+      description: locationData.description,
+      latitude: locationData.latitude,
+      longitude: locationData.longitude,
+      // If user selects a new location, ensure nearCampus is turned off
+      nearCampus: false,
+    });
+  };
+
+  const handleRadiusChange = (newRadius: number) => {
+    onChange({ ...value, radius: value.radius === newRadius ? null : newRadius });
+  };
+
+  // Handler for the Near Campus toggle
+  const handleNearCampusToggle = (isEnabled: boolean) => {
+    if (isEnabled) {
+      // When enabling "Near Campus", set location to UCSC and a default radius
+      onChange({
+        ...value,
+        nearCampus: true,
+        description: UCSC_LOCATION.description,
+        latitude: UCSC_LOCATION.latitude,
+        longitude: UCSC_LOCATION.longitude,
+        radius: DEFAULT_NEAR_CAMPUS_RADIUS,
+      });
+    } else {
+      // When disabling "Near Campus", only change the nearCampus flag
+      onChange({
+        ...value,
+        nearCampus: false,
+      });
+    }
+  };
+
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <View style={styles.container}>
       <Text style={styles.title}>Location Preferences</Text>
       
       <View style={styles.optionContainer}>
-        <Text style={styles.optionLabel}>Near campus</Text>
+        <Text style={styles.optionLabel}>Near Campus</Text>
         <Switch
           value={value.nearCampus}
-          onValueChange={(newValue) => onChange({ ...value, nearCampus: newValue })}
+          onValueChange={handleNearCampusToggle}
           trackColor={{ false: '#333', true: '#FFD700' }}
           thumbColor={value.nearCampus ? '#FFD700' : '#f4f3f4'}
         />
       </View>
       
-      <TouchableOpacity 
-        style={styles.cityInputContainer}
-        onPress={() => setShowCityInput(true)}
-      >
-        {!showCityInput ? (
-          <View style={styles.cityPlaceholder}>
-            <Ionicons name="location-outline" size={20} color="#ccc" />
-            <Text style={styles.cityPlaceholderText}>Specify a location</Text>
-          </View>
-        ) : (
-          <TextInput
-            style={styles.textInput}
-            placeholder="Enter city or neighborhood"
-            placeholderTextColor="#999"
-            value={value.city}
-            onChangeText={(text) => onChange({ ...value, city: text })}
-            autoFocus={!value.city}
-          />
-        )}
-      </TouchableOpacity>
+      {/* Only show search input if "Near Campus" is OFF */}
+      {!value.nearCampus && (
+        <FormLocationInput
+          label="Search Location"
+          placeholder="Enter city, neighborhood, or address"
+          onLocationSelect={handleLocationSelect}
+          currentValue={value.description || ''}
+        />
+      )}
       
-      {showCityInput && (
+      {/* Always show radius options when a location is selected (from search OR near campus) */}
+      {value.description && (
         <>
-          <Text style={styles.sectionLabel}>Search radius</Text>
+          <Text style={styles.sectionLabel}>
+            {value.nearCampus 
+              ? "Search radius from campus" 
+              : "Search radius from selected location"}
+          </Text>
           <View style={styles.radiusOptions}>
             {radiusOptions.map((radius) => (
               <TouchableOpacity
@@ -59,7 +99,7 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
                   styles.radiusOption,
                   value.radius === radius && styles.selectedRadiusOption
                 ]}
-                onPress={() => onChange({ ...value, radius })}
+                onPress={() => handleRadiusChange(radius)}
               >
                 <Text 
                   style={[
@@ -72,38 +112,16 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
               </TouchableOpacity>
             ))}
           </View>
-          
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>State (optional)</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Enter state"
-              placeholderTextColor="#999"
-              value={value.state}
-              onChangeText={(text) => onChange({ ...value, state: text })}
-            />
-          </View>
-          
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Zip code (optional)</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Enter zip code"
-              placeholderTextColor="#999"
-              value={value.zipCode}
-              onChangeText={(text) => onChange({ ...value, zipCode: text })}
-              keyboardType="numeric"
-            />
-          </View>
         </>
       )}
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    padding: 5,
   },
   title: {
     fontSize: 20,
@@ -116,42 +134,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
+    paddingHorizontal: 5,
   },
   optionLabel: {
     fontSize: 16,
     color: '#fff',
-  },
-  cityInputContainer: {
-    backgroundColor: '#333',
-    borderRadius: 8,
-    marginBottom: 20,
-    overflow: 'hidden',
-  },
-  cityPlaceholder: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-  },
-  cityPlaceholderText: {
-    color: '#ccc',
-    marginLeft: 8,
-    fontSize: 16,
-  },
-  textInput: {
-    padding: 14,
-    color: '#fff',
-    fontSize: 16,
   },
   sectionLabel: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 12,
+    marginTop: 20,
+    paddingHorizontal: 5,
   },
   radiusOptions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginBottom: 20,
+    paddingHorizontal: 5,
   },
   radiusOption: {
     backgroundColor: '#333',
@@ -170,13 +171,5 @@ const styles = StyleSheet.create({
   selectedRadiusOptionText: {
     color: '#000',
     fontWeight: 'bold',
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 16,
-    color: '#fff',
-    marginBottom: 8,
   },
 }); 
