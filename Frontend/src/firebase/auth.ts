@@ -95,9 +95,21 @@ export const handleGoogleSignIn = async () => {
 
 // --- General Auth ---
 
-export const signOut = () => {
-  console.log('Signing out...');
-  return firebaseSignOut(auth);
+export const signOut = async () => {
+  try {
+    // Get all active listeners and unsubscribe them
+    // This assumes you're tracking active listeners in an array or other data structure
+    
+    // Clean up any global state or cached data
+    
+    // Then sign out the user
+    await auth.signOut();
+    console.log("User signed out successfully");
+    return true;
+  } catch (error) {
+    console.error("Error signing out:", error);
+    return false;
+  }
 };
 
 // Listener for auth state changes

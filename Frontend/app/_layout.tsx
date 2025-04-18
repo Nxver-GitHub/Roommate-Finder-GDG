@@ -167,7 +167,21 @@ export default function RootLayout() {
 
   // Return the Stack (remains the same)
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack 
+      screenOptions={{
+        headerShown: false,
+        headerStyle: {
+          backgroundColor: '#121212',
+        },
+        headerTitleStyle: {
+          color: '#FFFFFF',
+        },
+        headerTintColor: '#FFFFFF',
+        contentStyle: {
+          backgroundColor: '#121212',
+        },
+      }}
+    >
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(screens)" />
     </Stack>

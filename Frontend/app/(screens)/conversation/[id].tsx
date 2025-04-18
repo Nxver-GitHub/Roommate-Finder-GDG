@@ -23,11 +23,12 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft, Send, Image as ImageIcon, Paperclip, FileText, Download, X, Share as ShareIcon, Copy } from 'lucide-react-native';
 import { getCurrentUser } from '../../../src/firebase/auth'; // Use your actual auth functions
 import {
-  getUserProfile, // Function to get user profile
+  getUserProfile,
   getOrCreateConversation,
   addMessage,
   getMessagesListener,
-} from '../../../src/firebase/firestore'; // Use your actual firestore functions
+  areUsersMatched,
+} from '../../../src/firebase/firestore';
 import { UserProfileData } from '../../../src/types/profile'; // User profile type
 import { MessageData } from '../../../src/types/chat'; // Import the MessageData type
 import * as ImagePicker from 'expo-image-picker';
@@ -39,6 +40,8 @@ import Modal from "react-native-modal";
 import ImageViewer from 'react-native-image-zoom-viewer';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
+import { db } from '../../../src/firebase/config';
+import { doc, onSnapshot } from 'firebase/firestore'; // Add this import
 
 // Placeholder image URI
 const PLACEHOLDER_IMAGE_URI = 'https://via.placeholder.com/100/374151/e5e7eb?text=No+Pic';
@@ -109,6 +112,7 @@ export default function ConversationScreen() {
   const [isZoomViewerVisible, setIsZoomViewerVisible] = useState(false);
   const [zoomViewerImages, setZoomViewerImages] = useState<{ url: string }[]>([]);
   const [zoomViewerIndex, setZoomViewerIndex] = useState(0);
+  const [isMatched, setIsMatched] = useState(true);
 
   const flatListRef = useRef<FlatList>(null);
 
@@ -124,6 +128,96 @@ export default function ConversationScreen() {
       }
     })();
   }, []);
+
+  // Modify the match status check effect
+  useEffect(() => {
+    if (!currentUser?.uid || !otherUserId) {
+      setError("User information is missing.");
+      setLoading(false);
+      return;
+    }
+
+    // Check match status first
+    const checkMatchStatus = async () => {
+      try {
+        const matched = await areUsersMatched(currentUser.uid, otherUserId);
+        setIsMatched(matched);
+        
+        if (!matched) {
+          setError("You can only message users you've matched with.");
+          setLoading(false);
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.error("Error checking match status:", err);
+        setError("Failed to verify match status.");
+        setLoading(false);
+        return false;
+      }
+    };
+
+    // Initialize conversation only if matched
+    const initializeConversation = async () => {
+      const isMatched = await checkMatchStatus();
+      if (!isMatched) return;
+
+      try {
+        // Get other user's profile
+        const profile = await getUserProfile(otherUserId);
+        if (profile) {
+          setOtherUserProfile(profile);
+        } else {
+          setError("Could not load user's profile.");
+          return;
+        }
+
+        // Get or create conversation
+        const convId = await getOrCreateConversation(currentUser.uid, otherUserId);
+        setConversationId(convId);
+
+        // Set up message listener
+        const messagesUnsubscribe = getMessagesListener(
+          convId,
+          (receivedMessages) => {
+            setMessages(receivedMessages);
+            setError(null);
+            if (loading) setLoading(false);
+            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+          },
+          (listenerError) => {
+            console.error("Message listener error:", listenerError);
+            setError("Failed to load messages.");
+            setLoading(false);
+          }
+        );
+
+        // Set up match status listener
+        const matchRef = doc(db, 'matches', currentUser.uid, 'userMatches', otherUserId);
+        const unsubscribeMatch = onSnapshot(matchRef, (snapshot) => {
+          const stillMatched = snapshot.exists();
+          setIsMatched(stillMatched);
+          if (!stillMatched) {
+            setError("You are no longer matched with this user.");
+          }
+        });
+
+        return () => {
+          messagesUnsubscribe();
+          unsubscribeMatch();
+        };
+      } catch (error) {
+        console.error("Error initializing conversation:", error);
+        setError("Failed to initialize conversation.");
+        setLoading(false);
+      }
+    };
+
+    const cleanup = initializeConversation();
+    return () => {
+      if (cleanup) cleanup.then(unsubscribe => unsubscribe());
+    };
+  }, [currentUser?.uid, otherUserId]);
 
   // --- Handle Attachment Button Press ---
   const handleAttach = async () => {
@@ -278,115 +372,92 @@ export default function ConversationScreen() {
     }
   };
 
-  // --- Effect to initialize conversation and load data ---
-  useEffect(() => {
-    let unsubscribeMessages: (() => void) | null = null;
-    setLoading(true);
-    setError(null);
-
-    if (!currentUser?.uid || !otherUserId) {
-      setError("User information is missing.");
-      setLoading(false);
+  // Modify the send message handler
+  const handleSend = async () => {
+    if (!isMatched) {
+      Alert.alert("Cannot Send Message", "You can only send messages to matched users.");
       return;
     }
-
-    // Fetch other user's profile for the header
-    getUserProfile(otherUserId)
-      .then(profile => {
-        if (profile) {
-          setOtherUserProfile(profile);
-        } else {
-          setError("Could not load matched user's profile.");
-        }
-      })
-      .catch(err => {
-        console.error("Error fetching other user profile:", err);
-        setError("Failed to load user profile.");
-      });
-
-    // Get or create the conversation
-    getOrCreateConversation(currentUser.uid, otherUserId)
-      .then(convId => {
-        setConversationId(convId);
-        console.log(`Conversation ID set: ${convId}`);
-
-        // Set up the message listener once we have the conversation ID
-        unsubscribeMessages = getMessagesListener(
-          convId,
-          (receivedMessages) => {
-            console.log(`Listener received ${receivedMessages.length} messages.`);
-            setMessages(receivedMessages);
-            setError(null); // Clear error on successful message fetch
-            if (loading) setLoading(false); // Stop initial loading indicator
-            // Scroll to bottom after messages are loaded/updated
-            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-          },
-          (listenerError) => {
-            console.error("Message listener error:", listenerError);
-            setError("Failed to load messages.");
-            setLoading(false);
-          }
-        );
-      })
-      .catch(err => {
-        console.error("Error getting/creating conversation:", err);
-        setError("Failed to initialize conversation.");
-        setLoading(false);
-      });
-
-    // Cleanup function
-    return () => {
-      if (unsubscribeMessages) {
-        console.log("Unsubscribing message listener.");
-        unsubscribeMessages();
-      }
-    };
-  }, [currentUser?.uid, otherUserId]); // Rerun if user or otherUserId changes
-
-
-  // --- Handle Sending Messages ---
-  const handleSend = async () => {
-    if (!messageText.trim() || !currentUser?.uid || !conversationId || sending) return;
-
-    const textToSend = messageText.trim();
-    setMessageText(''); // Clear input immediately for better UX
-    setSending(true);
-
-    const newMessageData: Omit<MessageData, 'id' | 'timestamp'> = {
-      senderId: currentUser.uid,
-      text: textToSend,
-      // imageUrl: undefined, // Add if implementing image sending
-    };
+    if (!messageText.trim() || !conversationId || !currentUser?.uid) return;
 
     try {
-      console.log("Sending message:", newMessageData);
-      await addMessage(conversationId, newMessageData);
-      console.log("Message sent successfully.");
-      // Messages will update via the listener, no need to manually add here
-      // flatListRef.current?.scrollToEnd({ animated: true }); // Listener already scrolls
-    } catch (err) {
-      console.error("Error sending message:", err);
-      Alert.alert("Error", "Could not send message. Please try again.");
-      setMessageText(textToSend); // Restore text if sending failed
+      setSending(true);
+      await addMessage(conversationId, {
+        senderId: currentUser.uid,
+        text: messageText.trim(),
+        timestamp: new Date(),
+      });
+      setMessageText('');
+    } catch (error) {
+      console.error("Error sending message:", error);
+      Alert.alert("Error", "Failed to send message. Please try again.");
     } finally {
       setSending(false);
     }
   };
 
-  // --- Function to Open Image Zoom Viewer ---
+  // --- Image Interaction Functions ---
   const openImageZoomViewer = (imageUrl: string) => {
+    console.log("Opening image zoom viewer for:", imageUrl);
     setZoomViewerImages([{ url: imageUrl }]);
-    setZoomViewerIndex(0); 
+    setZoomViewerIndex(0);
     setIsZoomViewerVisible(true);
   };
 
-  // --- Function to Close Image Zoom Viewer ---
   const closeImageZoomViewer = () => {
+    console.log("Closing image zoom viewer");
     setIsZoomViewerVisible(false);
-    setZoomViewerImages([]); 
+    setZoomViewerImages([]); // Clear images when closing
   };
-  
-  // --- Function to Open File Externally ---
+
+  // --- Keep your existing handleSaveImage, handleCopyImage, handleShareImage ---
+  const handleSaveImage = async (imageUrl: string) => {
+    try {
+      console.log("Attempting to save image:", imageUrl);
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant access to save photos.');
+        return;
+      }
+      const fileUri = FileSystem.documentDirectory + `temp-${Date.now()}.jpg`;
+      const { uri } = await FileSystem.downloadAsync(imageUrl, fileUri);
+      await MediaLibrary.createAssetAsync(uri);
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+      Alert.alert('Success', 'Image saved to your photos!');
+      closeImageZoomViewer(); // Close viewer after action
+    } catch (error) {
+      console.error('Error saving image:', error);
+      Alert.alert('Error', 'Failed to save image.');
+    }
+  };
+
+  const handleCopyImage = async (imageUrl: string) => {
+    try {
+      console.log("Attempting to copy image URL:", imageUrl);
+      await Clipboard.setString(imageUrl);
+      Alert.alert('Success', 'Image URL copied to clipboard!');
+      closeImageZoomViewer(); // Close viewer after action
+    } catch (error) {
+      console.error('Error copying image URL:', error);
+      Alert.alert('Error', 'Failed to copy image URL.');
+    }
+  };
+
+  const handleShareImage = async (imageUrl: string) => {
+     try {
+       console.log("Attempting to share image:", imageUrl);
+       const fileUri = FileSystem.documentDirectory + `temp-${Date.now()}.jpg`;
+       const { uri } = await FileSystem.downloadAsync(imageUrl, fileUri);
+       await Share.share({ url: uri, message: 'Check out this image!' });
+       await FileSystem.deleteAsync(uri, { idempotent: true });
+       // Don't close viewer immediately, let share sheet handle it
+     } catch (error) {
+       console.error('Error sharing image:', error);
+       Alert.alert('Error', 'Failed to share image.');
+     }
+  };
+
+  // --- File Handling Functions (openFileExternally, downloadFile, handleFileLongPress) ---
   const openFileExternally = async (fileUrl: string | undefined) => {
     if (!fileUrl) {
       Alert.alert("Error", "File URL is missing.");
@@ -409,55 +480,6 @@ export default function ConversationScreen() {
     }
   };
 
-  // --- Keep functions for header buttons (Save, Copy, Share) ---
-  const handleSaveImage = async () => {
-    if (!zoomViewerImages.length || zoomViewerIndex < 0) return;
-    const currentImageUrl = zoomViewerImages[zoomViewerIndex]?.url;
-    if (!currentImageUrl) return;
-
-    const fileName = currentImageUrl.split('/').pop()?.split('?')[0] || `${uuidv4()}.jpg`; 
-    
-    try {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant access to save photos.');
-        return;
-      }
-      
-      const fileUri = FileSystem.documentDirectory + fileName;
-      const { uri } = await FileSystem.downloadAsync(currentImageUrl, fileUri);
-      await MediaLibrary.saveToLibraryAsync(uri);
-      Alert.alert('Success', `Image saved.`);
-      
-    } catch (error) {
-      console.error('Error saving image:', error);
-      Alert.alert('Error', 'Failed to save image.');
-    }
-  };
-
-  const handleCopyImageLink = () => {
-    if (!zoomViewerImages.length || zoomViewerIndex < 0) return;
-    const currentImageUrl = zoomViewerImages[zoomViewerIndex]?.url;
-    if (!currentImageUrl) return;
-    
-    Clipboard.setString(currentImageUrl);
-    Alert.alert('Copied', 'Image URL copied');
-  };
-
-  const handleShareImage = async () => {
-    if (!zoomViewerImages.length || zoomViewerIndex < 0) return;
-    const currentImageUrl = zoomViewerImages[zoomViewerIndex]?.url;
-    if (!currentImageUrl) return;
-
-    try {
-      await Share.share({ url: currentImageUrl }); // Use Share API
-    } catch (error) {
-      console.error('Error sharing image:', error);
-      Alert.alert('Error', 'Could not share image.');
-    }
-  };
-
-  // Add this function to handle file downloads
   const downloadFile = async (fileUrl: string, fileName: string) => {
     try {
       // Get permissions if not already granted
@@ -499,7 +521,6 @@ export default function ConversationScreen() {
     }
   };
 
-  // Update the file long press handler
   const handleFileLongPress = async (fileUrl: string, fileName: string) => {
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -574,24 +595,74 @@ export default function ConversationScreen() {
     }
   };
 
-  // --- Modify the renderMessageItem function to KEEP the long-press ---
+  // --- Image Long Press Handling ---
+  const handleImageLongPress = (imageUrl: string) => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Save to Photos', 'Copy', 'Share'],
+          cancelButtonIndex: 0,
+        },
+        async (buttonIndex) => {
+          switch (buttonIndex) {
+            case 1: // Save
+              await handleSaveImage(imageUrl);
+              break;
+            case 2: // Copy
+              await handleCopyImage(imageUrl);
+              break;
+            case 3: // Share
+              await handleShareImage(imageUrl);
+              break;
+          }
+        }
+      );
+    } else {
+      Alert.alert(
+        "Image Options",
+        "What would you like to do with this image?",
+        [
+          {
+            text: 'Save to Photos',
+            onPress: () => handleSaveImage(imageUrl),
+          },
+          {
+            text: 'Copy',
+            onPress: () => handleCopyImage(imageUrl),
+          },
+          {
+            text: 'Share',
+            onPress: () => handleShareImage(imageUrl),
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+        ]
+      );
+    }
+  };
+
+  // --- Render Message Item ---
   const renderMessageItem = ({ item }: { item: MessageData }) => {
     const isCurrentUser = item.senderId === currentUser?.uid;
     const profileImageUri = !isCurrentUser ? (otherUserProfile?.photoURL || PLACEHOLDER_IMAGE_URI) : null;
 
     return (
       <View style={[styles.messageRow, isCurrentUser ? styles.currentUserRow : styles.otherUserRow]}>
-        {!isCurrentUser && profileImageUri && (
-          <Image source={{ uri: profileImageUri }} style={styles.messageAvatar} />
+        {!isCurrentUser && (
+          <SimpleAvatar uri={profileImageUri} size={32} />
         )}
 
-        <View style={[styles.messageBubble, isCurrentUser ? styles.currentUserBubble : styles.otherUserBubble]}>
-          
-          {/* Image attachment - KEEP onLongPress */}
+        <View style={[
+          styles.messageBubble, 
+          isCurrentUser ? styles.currentUserBubble : styles.otherUserBubble
+        ]}>
+          {/* Image attachment */}
           {item.imageUrl && (
             <TouchableOpacity
               onPress={() => openImageZoomViewer(item.imageUrl!)}
-              onLongPress={() => handleImageLongPress(item.imageUrl || '')}
+              onLongPress={() => handleImageLongPress(item.imageUrl!)}
               delayLongPress={500}
             >
               <Image
@@ -602,50 +673,21 @@ export default function ConversationScreen() {
             </TouchableOpacity>
           )}
 
-          {/* File attachment - KEEP onLongPress */}
-          {item.fileUrl && (
-            <TouchableOpacity 
-              style={styles.fileAttachmentContainer}
-              onPress={() => openFileExternally(item.fileUrl)}
-              onLongPress={() => handleFileLongPress(item.fileUrl || '', item.fileName || 'file')}
-              delayLongPress={500}
-            >
-              <FileText size={24} color={isCurrentUser ? '#FFFFFF' : '#9ca3af'} />
-              <View style={styles.fileInfo}>
-                <Text 
-                  style={[
-                    styles.fileName, 
-                    isCurrentUser ? styles.currentUserText : styles.otherUserText,
-                    { fontWeight: '600' }
-                  ]}
-                  numberOfLines={1}
-                  ellipsizeMode="middle"
-                >
-                  {item.fileName || 'File'}
-                </Text>
-                {item.fileSize && typeof item.fileSize === 'number' && (
-                  <Text style={styles.fileSize}>
-                    {(item.fileSize / 1024 / 1024).toFixed(2)} MB
-                  </Text>
-                )}
-              </View>
-              <Download 
-                size={20} 
-                color={isCurrentUser ? '#FFFFFF' : '#9ca3af'} 
-                onPress={() => downloadFile(item.fileUrl || '', item.fileName || 'file')}
-              />
-            </TouchableOpacity>
-          )}
-
           {/* Message Text */}
           {item.text && (
-            <Text style={[styles.messageText, isCurrentUser ? styles.currentUserText : styles.otherUserText]}>
+            <Text style={[
+              styles.messageText, 
+              isCurrentUser ? styles.currentUserText : styles.otherUserText
+            ]}>
               {item.text}
             </Text>
           )}
           
           {/* Timestamp */}
-          <Text style={[styles.messageTime, isCurrentUser ? styles.currentUserTime : styles.otherUserTime]}>
+          <Text style={[
+            styles.messageTime, 
+            isCurrentUser ? styles.currentUserTime : styles.otherUserTime
+          ]}>
             {formatTime(item.timestamp as Date)}
           </Text>
         </View>
@@ -653,7 +695,7 @@ export default function ConversationScreen() {
     );
   };
 
-  // --- Loading State ---
+  // --- Loading and Error States ---
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -665,7 +707,6 @@ export default function ConversationScreen() {
     );
   }
 
-  // --- Error State ---
   if (error) {
     return (
       <SafeAreaView style={styles.container}>
@@ -691,141 +732,171 @@ export default function ConversationScreen() {
   // --- Main Conversation View ---
   return (
     <SafeAreaView style={styles.container}>
-      <View style={{ flex: 1 }}>
-        <Stack.Screen options={{ headerShown: false }} />
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: '#121212', // Dark background
+          },
+          headerTitleStyle: {
+            color: '#FFFFFF', // White text
+            fontSize: 18,
+          },
+          headerLeft: () => (
+            <TouchableOpacity 
+              onPress={() => router.back()}
+              style={styles.headerButton}
+            >
+              <ArrowLeft color="#fff" size={24} />
+            </TouchableOpacity>
+          ),
+          headerTitle: otherUserProfile ? 
+            `${otherUserProfile.basicInfo?.firstName || 'User'} ${otherUserProfile.basicInfo?.lastName || ''}` : 
+            'Chat',
+          headerShadowVisible: false, // Remove the bottom shadow
+          headerTintColor: '#FFFFFF', // This ensures all header elements are white
+        }}
+      />
 
-        {/* Custom Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <ArrowLeft size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          <View style={styles.headerInfo}>
-            <Image
-              source={{ uri: otherUserProfile?.photoURL || PLACEHOLDER_IMAGE_URI }}
-              style={styles.headerAvatar}
-            />
-            <Text style={styles.headerName} numberOfLines={1}>
-              {otherUserProfile?.basicInfo?.firstName || 'User'} {otherUserProfile?.basicInfo?.lastName || ''}
-            </Text>
-          </View>
+      {!isMatched && (
+        <View style={styles.unmatchedBanner}>
+          <Text style={styles.unmatchedText}>
+            You are no longer matched with this user. Messages cannot be sent.
+          </Text>
         </View>
+      )}
 
-        {/* Message List */}
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={renderMessageItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.messagesList}
-          initialNumToRender={15} 
-          maxToRenderPerBatch={10} 
-          windowSize={11}
-          nestedScrollEnabled={true}
-          onContentSizeChange={() => {
-            if (!loading) { /* ... */ }
-          }}
-          onLayout={() => {
-            if (!loading) { /* ... */ }
-          }}
-        /> 
+      {/* Message List */}
+      <FlatList
+        ref={flatListRef}
+        data={messages}
+        renderItem={renderMessageItem}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.messagesList}
+        initialNumToRender={15} 
+        maxToRenderPerBatch={10} 
+        windowSize={11}
+        nestedScrollEnabled={true}
+        onContentSizeChange={() => {
+          if (!loading) { /* ... */ }
+        }}
+        onLayout={() => {
+          if (!loading) { /* ... */ }
+        }}
+      /> 
 
-        {/* Upload progress indicator */}
-        {uploading && (
-          <View style={styles.uploadProgressContainer}>
-            <Text style={styles.uploadProgressText}>
-              Uploading: {uploadProgress.toFixed(0)}%
-            </Text>
-          </View>
-        )}
+      {/* Upload progress indicator */}
+      {uploading && (
+        <View style={styles.uploadProgressContainer}>
+          <Text style={styles.uploadProgressText}>
+            Uploading: {uploadProgress.toFixed(0)}%
+          </Text>
+        </View>
+      )}
 
-        {/* Input Area */}
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? (uploading ? 110 : 90) : (uploading ? 90 : 70)}
-        >
-          <View style={styles.inputContainer}>
-           <TouchableOpacity 
-              style={styles.attachButton}
-              onPress={handleAttach}
-              disabled={uploading || sending}
-            >
-              <Paperclip size={24} color={(uploading || sending) ? "#555555" : "#888888"} />
+      {/* Input Area */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? (uploading ? 110 : 90) : (uploading ? 90 : 70)}
+      >
+        <View style={styles.inputContainer}>
+         <TouchableOpacity 
+            style={styles.attachButton}
+            onPress={handleAttach}
+            disabled={uploading || sending}
+          >
+            <Paperclip size={24} color={(uploading || sending) ? "#555555" : "#888888"} />
+          </TouchableOpacity>
+          <TextInput
+            style={styles.textInput}
+            placeholder="Type a message..."
+            placeholderTextColor="#666666"
+            value={messageText}
+            onChangeText={setMessageText}
+            multiline
+            editable={!uploading}
+          />
+           <TouchableOpacity
+            style={[
+              styles.sendButton,
+              (!messageText.trim() || sending || uploading) && styles.disabledSendButton,
+            ]}
+            onPress={handleSend}
+            disabled={!messageText.trim() || sending || uploading}
+          >
+            {sending ? (
+              <ActivityIndicator size="small" color="#666666" />
+            ) : (
+              <Send size={20} color={messageText.trim() && !uploading ? '#FFFFFF' : '#666666'} />
+            )}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView> 
+
+      {/* Image Zoom Viewer Modal */}
+      <Modal
+        isVisible={isZoomViewerVisible}
+        onBackdropPress={closeImageZoomViewer}
+        onBackButtonPress={closeImageZoomViewer}
+        style={styles.zoomModal}
+        backdropOpacity={0.9}
+        animationIn="fadeIn"
+        animationOut="fadeOut"
+        useNativeDriverForBackdrop
+        hideModalContentWhileAnimating
+      >
+        <SafeAreaView style={styles.zoomContainer}>
+          <View style={styles.zoomHeader}>
+            <TouchableOpacity onPress={closeImageZoomViewer} style={styles.zoomButton}>
+              <X size={28} color="#FFFFFF" />
             </TouchableOpacity>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Type a message..."
-              placeholderTextColor="#666666"
-              value={messageText}
-              onChangeText={setMessageText}
-              multiline
-              editable={!uploading}
-            />
-             <TouchableOpacity
-              style={[
-                styles.sendButton,
-                (!messageText.trim() || sending || uploading) && styles.disabledSendButton,
-              ]}
-              onPress={handleSend}
-              disabled={!messageText.trim() || sending || uploading}
-            >
-              {sending ? (
-                <ActivityIndicator size="small" color="#666666" />
-              ) : (
-                <Send size={20} color={messageText.trim() && !uploading ? '#FFFFFF' : '#666666'} />
-              )}
-            </TouchableOpacity>
+            <View style={styles.zoomActions}>
+              <TouchableOpacity
+                onPress={() => {
+                  const currentImageUrl = zoomViewerImages[zoomViewerIndex]?.url;
+                  if (currentImageUrl) handleSaveImage(currentImageUrl);
+                }}
+                style={styles.zoomButton}
+              >
+                <Download size={28} color="#FFFFFF" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                    const currentImageUrl = zoomViewerImages[zoomViewerIndex]?.url;
+                    if (currentImageUrl) handleCopyImage(currentImageUrl);
+                }}
+                style={styles.zoomButton}
+               >
+                 <Copy size={28} color="#FFFFFF" />
+               </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  const currentImageUrl = zoomViewerImages[zoomViewerIndex]?.url;
+                  if (currentImageUrl) handleShareImage(currentImageUrl);
+                }}
+                style={styles.zoomButton}
+              >
+                <ShareIcon size={28} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
           </View>
-        </KeyboardAvoidingView> 
 
-        {/* Image Zoom Viewer Modal */}
-        <Modal
-          isVisible={isZoomViewerVisible}
-          onBackdropPress={closeImageZoomViewer}
-          onSwipeComplete={closeImageZoomViewer}
-          swipeDirection="down"
-          style={styles.zoomViewerModal}
-          useNativeDriverForBackdrop
-          animationIn="zoomIn"
-          animationOut="zoomOut"
-        >
-          <SafeAreaView style={{ flex: 1, backgroundColor: 'black' }}>
+          {zoomViewerImages.length > 0 && (
             <ImageViewer
               imageUrls={zoomViewerImages}
               index={zoomViewerIndex}
-              onCancel={closeImageZoomViewer}
+              onSwipeDown={closeImageZoomViewer}
               enableSwipeDown={true}
               renderIndicator={() => null}
-              onChange={(index) => setZoomViewerIndex(index === undefined ? 0 : index)}
-              
-              // Disable the saveToLocalByLongPress option
+              backgroundColor="transparent"
+              style={{ flex: 1 }}
               saveToLocalByLongPress={false}
-              
-              // Disable standard menus and controls
-              menuContext={{ saveToLocal: 'none', cancel: 'none' }}
-              
-              // Add this to control how it responds to taps
-              onClick={() => {/* Do nothing */}}
-              
-              // Keep custom header
-              renderHeader={() => (
-                <View style={styles.viewerHeader}>
-                  <TouchableOpacity onPress={closeImageZoomViewer} style={styles.viewerButton}>
-                    <X size={26} color="#FFFFFF" />
-                  </TouchableOpacity>
-                  <View style={styles.viewerActions}>
-                    <TouchableOpacity onPress={handleSaveImage} style={styles.viewerButton}>
-                      <Download size={26} color="#FFFFFF" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={handleCopyImageLink} style={styles.viewerButton}>
-                      <Copy size={26} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
+              loadingRender={() => <ActivityIndicator size="large" color="#FFFFFF" />}
+              enablePreload={true}
             />
-          </SafeAreaView>
-        </Modal>
-      </View>
+          )}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -834,7 +905,7 @@ export default function ConversationScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#121212', // Dark background
+    backgroundColor: '#121212',
   },
   centerContainer: {
     flex: 1,
@@ -904,102 +975,92 @@ const styles = StyleSheet.create({
   },
   // Message List Styles
   messagesList: {
-    paddingVertical: 10,
-    paddingHorizontal: 10,
+    flexGrow: 1,
+    paddingVertical: 12,
   },
   messageRow: {
     flexDirection: 'row',
-    marginBottom: 10,
-    alignItems: 'flex-end', // Align avatar and bubble at the bottom
+    marginVertical: 4,
+    paddingHorizontal: 12,
+    alignItems: 'flex-end',
   },
   currentUserRow: {
-    justifyContent: 'flex-end', // Push bubble to the right
+    justifyContent: 'flex-end',
   },
   otherUserRow: {
-    justifyContent: 'flex-start', // Push bubble to the left
-  },
-  messageAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    marginRight: 8,
-    marginBottom: 5, // Align with bottom of bubble
-    backgroundColor: '#374151',
+    justifyContent: 'flex-start',
   },
   messageBubble: {
-    maxWidth: '75%', // Limit bubble width
-    paddingVertical: 8,
+    maxWidth: '70%',
     paddingHorizontal: 12,
-    borderRadius: 18,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginHorizontal: 8,
+    overflow: 'hidden', // This ensures the image respects the bubble's border radius
   },
   currentUserBubble: {
-    backgroundColor: '#0891b2', // Accent color for current user
-    borderTopRightRadius: 5, // Flat corner for pointer effect
+    backgroundColor: '#0891b2', // Cyan/blue color for current user
+    borderBottomRightRadius: 4,
   },
   otherUserBubble: {
-    backgroundColor: '#374151', // Darker gray for other user
-    borderTopLeftRadius: 5, // Flat corner
-  },
-  messageImage: {
-    width: 200,
-    height: 150,
-    borderRadius: 10,
-    marginBottom: 5, // Space between image and text
+    backgroundColor: '#374151', // Gray for other user
+    borderBottomLeftRadius: 4,
   },
   messageText: {
-    fontSize: 15,
+    fontSize: 16,
     lineHeight: 20,
   },
   currentUserText: {
     color: '#FFFFFF',
   },
   otherUserText: {
-    color: '#e5e7eb',
+    color: '#FFFFFF',
   },
   messageTime: {
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 4,
-    textAlign: 'right', // Align time to the right within the bubble
+    alignSelf: 'flex-end',
   },
   currentUserTime: {
-    color: '#d1d5db', // Lighter gray for time
+    color: 'rgba(255, 255, 255, 0.6)',
   },
   otherUserTime: {
-    color: '#9ca3af', // Dimmer gray for time
+    color: 'rgba(255, 255, 255, 0.6)',
   },
   // Input Area Styles
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    backgroundColor: '#1f2937',
     borderTopWidth: 1,
-    borderTopColor: '#333333',
-    backgroundColor: '#1f2937', // Match header bg
+    borderTopColor: '#374151',
   },
   attachButton: {
     padding: 8,
   },
   textInput: {
     flex: 1,
-    minHeight: 40, // Ensure it's tappable
-    maxHeight: 100, // Limit multiline growth
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#374151', // Input background
+    backgroundColor: '#374151',
     borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginHorizontal: 8,
     color: '#FFFFFF',
     fontSize: 16,
-    marginHorizontal: 8,
+    maxHeight: 100,
   },
   sendButton: {
-    padding: 10,
+    width: 40,
+    height: 40,
     borderRadius: 20,
-    backgroundColor: '#0891b2', // Accent color
-    marginLeft: 5,
+    backgroundColor: '#0891b2',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   disabledSendButton: {
-    backgroundColor: '#374151', // Use disabled color
+    backgroundColor: '#374151',
   },
   fileAttachmentContainer: {
     flexDirection: 'row',
@@ -1033,9 +1094,35 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontSize: 12,
   },
-  zoomViewerModal: {
+  zoomModal: {
     margin: 0,
-    backgroundColor: 'black',
+    justifyContent: 'flex-start',
+    backgroundColor: 'rgba(0,0,0,0.95)',
+  },
+  zoomContainer: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  zoomHeader: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 40 : 10,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    zIndex: 10,
+  },
+   zoomActions: {
+     flexDirection: 'row',
+     alignItems: 'center',
+   },
+  zoomButton: {
+    padding: 10,
+    marginLeft: 10,
   },
   errorContainer: {
     flex: 1,
@@ -1065,26 +1152,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
-  viewerHeader: {
-    position: 'absolute',
-    top: 0, 
-    left: 0,
-    right: 0,
-    zIndex: 1, 
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingTop: Platform.OS === 'ios' ? 10 : 15, 
-    paddingBottom: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)', 
-  },
-  viewerActions: {
-    flexDirection: 'row',
+  unmatchedBanner: {
+    backgroundColor: '#991B1B',
+    padding: 12,
     alignItems: 'center',
   },
-  viewerButton: {
+  unmatchedText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+  },
+  headerButton: {
+    marginLeft: 8,
     padding: 8,
-    marginLeft: 12, 
+  },
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#121212',
+  },
+  messageImage: {
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 8,
   },
 }); 

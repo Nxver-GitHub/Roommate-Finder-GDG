@@ -10,6 +10,7 @@ import { db } from './config'; // Import initialized Firestore instance
 import { UserProfileData } from '../types/profile'; // Assuming you have this type defined
 import { MessageData, ConversationData, ConversationWithProfiles } from '../types/chat'; // Assuming you define/will define this type
 import { SearchFilters } from '../services/searchService';
+import { getCurrentUser } from './auth'; // Import getCurrentUser function
 
 const USERS_COLLECTION = 'users';
 const SWIPES_COLLECTION = 'swipes';
@@ -167,28 +168,58 @@ export const recordSwipe = async (swiperId, swipedUserId, liked) => {
   }
 };
 
-/** Creates a match document for the user initiating the action */
-const createMatch = async (initiatingUserId, matchedUserId) => {
+/** Creates match documents for both users involved in a mutual match */
+const createMatch = async (initiatingUserId: string, matchedUserId: string): Promise<boolean> => {
   console.log(`createMatch: Attempting to create match document for initiator ${initiatingUserId} -> matched ${matchedUserId}`);
-  
-  // Only create the document for the user whose action triggered this check
-  const matchDocRefInitiator = doc(db, MATCHES_COLLECTION, initiatingUserId, 'userMatches', matchedUserId);
+
   const timestamp = serverTimestamp();
 
   try {
-    // Set the document for the initiating user
-    await setDoc(matchDocRefInitiator, { matchedAt: timestamp, otherUserId: matchedUserId });
-    console.log(`createMatch: Match document created successfully for ${initiatingUserId}`);
-    
-    // We no longer try to write the other user's document here
-    
-  } catch (error) {
-    console.error(`createMatch: Error creating match document for ${initiatingUserId}:`, error);
-     if (error.code === 'permission-denied') {
-       console.error(`createMatch: PERMISSION DENIED creating match document. Verify Firestore rules allow writing to /matches/${initiatingUserId}/userMatches/${matchedUserId}`);
-     }
-    // Re-throw the error so the calling function knows it failed
-    throw error;
+    // 1. Check if match already exists (both ways)
+    const match1DocRef = doc(db, MATCHES_COLLECTION, initiatingUserId, 'userMatches', matchedUserId);
+    const match2DocRef = doc(db, MATCHES_COLLECTION, matchedUserId, 'userMatches', initiatingUserId);
+
+    const [match1Snap, match2Snap] = await Promise.all([
+      getDoc(match1DocRef),
+      getDoc(match2DocRef)
+    ]);
+
+    const match1Exists = match1Snap.exists();
+    const match2Exists = match2Snap.exists();
+
+    // If both already exist, nothing to do
+    if (match1Exists && match2Exists) {
+      console.log(`createMatch: Match already exists for both users. Skipping creation.`);
+      return true;
+    }
+
+    // Prepare batch operations
+    const batch = writeBatch(db);
+
+    // Only add set operation for initiating user if document doesn't exist
+    if (!match1Exists) {
+      batch.set(match1DocRef, { matchedAt: timestamp, otherUserId: matchedUserId });
+      console.log(`createMatch: Adding set operation for ${initiatingUserId} -> ${matchedUserId}`);
+    }
+
+    // Only add set operation for matched user if document doesn't exist
+    if (!match2Exists) {
+      batch.set(match2DocRef, { matchedAt: timestamp, otherUserId: initiatingUserId });
+      console.log(`createMatch: Adding set operation for ${matchedUserId} -> ${initiatingUserId}`);
+    }
+
+    // Commit batch only if there are operations to perform
+    if (!match1Exists || !match2Exists) {
+      await batch.commit();
+      console.log(`createMatch: Successfully created/updated match documents using batch.`);
+    }
+    return true;
+
+  } catch (batchError) {
+    console.error(`createMatch: Batch operation failed:`, batchError);
+    // Consider if fallback is needed or if failure should stop the process
+    // For now, return false if batch fails
+    return false;
   }
 };
 
@@ -324,156 +355,144 @@ const generateConversationId = (userId1: string, userId2: string): string => {
   return [userId1, userId2].sort().join('_');
 };
 
-/**
- * Gets or creates a conversation document between two users.
- * Returns the conversation ID.
- */
+// Update the areUsersMatched function to check BOTH users' match documents
+export const areUsersMatched = async (userId1: string, userId2: string): Promise<boolean> => {
+  if (!userId1 || !userId2) {
+    console.error("areUsersMatched: Missing user IDs");
+    return false;
+  }
+  try {
+    // Check if user1 has user2 as a match
+    const match1DocRef = doc(db, MATCHES_COLLECTION, userId1, 'userMatches', userId2);
+    // Check if user2 has user1 as a match
+    const match2DocRef = doc(db, MATCHES_COLLECTION, userId2, 'userMatches', userId1);
+
+    // Get both documents concurrently
+    const [match1Snap, match2Snap] = await Promise.all([
+      getDoc(match1DocRef),
+      getDoc(match2DocRef)
+    ]);
+
+    // Only return true if BOTH documents exist (mutual match)
+    const bothExist = match1Snap.exists() && match2Snap.exists();
+    if (bothExist) {
+      // Optional: Log if match is found
+      // console.log(`areUsersMatched: Mutual match confirmed between ${userId1} and ${userId2}`);
+    } else if (match1Snap.exists() || match2Snap.exists()) {
+      // Optional: Log if match is one-sided (should be cleaned up)
+      // console.log(`areUsersMatched: One-sided match detected between ${userId1} and ${userId2}.`);
+    }
+    return bothExist;
+  } catch (error) {
+    console.error(`areUsersMatched: Error checking match status between ${userId1} and ${userId2}:`, error);
+    return false;
+  }
+};
+
+// Modify getOrCreateConversation to strictly check match status
 export const getOrCreateConversation = async (userId1: string, userId2: string): Promise<string> => {
   if (!userId1 || !userId2) {
-    throw new Error("Both user IDs are required to get/create a conversation.");
+    throw new Error("Both user IDs are required");
   }
+  
+  // First check if users are matched
+  const areMatched = await areUsersMatched(userId1, userId2);
+  if (!areMatched) {
+    throw new Error("Users must be matched to have a conversation");
+  }
+  
   const conversationId = generateConversationId(userId1, userId2);
-  const conversationRef = doc(db, CONVERSATIONS_COLLECTION, conversationId);
+  
+  try {
+    const conversationRef = doc(db, CONVERSATIONS_COLLECTION, conversationId);
+    const conversationSnap = await getDoc(conversationRef);
+    
+    if (!conversationSnap.exists()) {
+      await setDoc(conversationRef, {
+        id: conversationId,
+        participants: [userId1, userId2],
+        createdAt: serverTimestamp(),
+        lastMessageTimestamp: null
+      });
+      console.log(`Created new conversation: ${conversationId}`);
+    }
+    
+    return conversationId;
+  } catch (error) {
+    console.error(`Error in getOrCreateConversation:`, error);
+    throw error;
+  }
+};
 
-  console.log(`getOrCreateConversation: Checking/Creating conversation ID: ${conversationId} for users ${userId1} and ${userId2}`);
+// Modify addMessage to be more robust and update parent conversation
+export const addMessage = async (conversationId: string, messageData: Partial<MessageData>): Promise<string | null> => {
+  if (!conversationId || !messageData.senderId || (!messageData.text?.trim() && !messageData.imageUrl)) {
+    console.error("addMessage: Missing required data:", { conversationId, messageData });
+    throw new Error("Missing required data for adding message");
+  }
+
+  console.log(`addMessage: Attempting to add message to conversation ${conversationId}`);
 
   try {
+    // Get conversation data to check participants and match status
+    const conversationRef = doc(db, CONVERSATIONS_COLLECTION, conversationId);
     const conversationSnap = await getDoc(conversationRef);
 
     if (!conversationSnap.exists()) {
-      console.log(`getOrCreateConversation: No existing conversation found. Creating new one.`);
-      await setDoc(conversationRef, {
-        participants: [userId1, userId2],
-        createdAt: serverTimestamp(),
-        lastMessageTimestamp: null, // Initialize timestamp
-        // You could add other initial metadata here
-      });
-      console.log(`getOrCreateConversation: New conversation document created.`);
-    } else {
-      console.log(`getOrCreateConversation: Existing conversation found.`);
+      console.error(`addMessage: Conversation ${conversationId} does not exist.`);
+      throw new Error("Conversation does not exist");
     }
-    return conversationId;
-  } catch (error) {
-    console.error(`getOrCreateConversation: Error getting/creating conversation ${conversationId}:`, error);
-    throw error;
-  }
-};
 
-/**
- * Adds a new message to a specific conversation's subcollection
- * and updates the parent conversation's last message timestamp and text.
- */
-export const addMessage = async (conversationId: string, messageData: any) => {
-  if (!conversationId || !messageData?.senderId) {
-    throw new Error("Conversation ID and sender ID are required.");
-  }
-  
-  // Validate that at least one field of content exists
-  if (!messageData.text && !messageData.imageUrl && !messageData.fileUrl) {
-    console.warn("addMessage: Attempting to add message with no content.");
-    return; // Don't add an empty message
-  }
-  
-  const messagesRef = collection(db, CONVERSATIONS_COLLECTION, conversationId, MESSAGES_SUBCOLLECTION);
-  const conversationRef = doc(db, CONVERSATIONS_COLLECTION, conversationId);
-  const timestamp = serverTimestamp();
+    const conversationData = conversationSnap.data() as ConversationData;
+    const otherUserId = conversationData.participants.find(id => id !== messageData.senderId);
 
-  console.log(`addMessage: Adding message to conversation ${conversationId} from sender ${messageData.senderId}`);
+    if (!otherUserId) {
+      console.error(`addMessage: Could not determine other participant in conversation ${conversationId}`);
+      throw new Error("Could not determine other participant");
+    }
 
-  try {
-    // Use a batch write to add the message and update the parent doc atomically
+    // Check if users are still matched before sending
+    const areMatched = await areUsersMatched(messageData.senderId, otherUserId);
+    if (!areMatched) {
+      console.warn(`addMessage: Cannot send message, users ${messageData.senderId} and ${otherUserId} are not matched.`);
+      throw new Error("Cannot send messages when users are not matched");
+    }
+
+    // Prepare the message document data
+    const finalMessageData = {
+      ...messageData,
+      timestamp: Timestamp.now(), // Use client-side Timestamp for immediate consistency
+      text: messageData.text?.trim() ?? '', // Ensure text is trimmed or empty string
+    };
+
+    // Use a batch write to add the message AND update the conversation atomically
     const batch = writeBatch(db);
 
-    // 1. Add the new message document with all fields
+    // 1. Add the new message document to the subcollection
     const newMessageRef = doc(collection(db, CONVERSATIONS_COLLECTION, conversationId, MESSAGES_SUBCOLLECTION));
-    batch.set(newMessageRef, {
-      ...messageData,
-      timestamp: timestamp,
-    });
+    batch.set(newMessageRef, finalMessageData);
+    console.log(`addMessage: Added set operation for new message ${newMessageRef.id}`);
 
-    // 2. Determine the preview text and message type for the conversation
-    let previewText = '...'; // Default fallback
-    let messageType = 'text'; // Default type
-    let fileName = null;
-
-    if (messageData.text) {
-      previewText = messageData.text.substring(0, 50).replace(/\n/g, ' '); // Limit length and remove newlines
-      messageType = 'text';
-    } else if (messageData.imageUrl) {
-      fileName = messageData.fileName || 'image.jpg';
-      previewText = `📷 ${fileName}`; // Icon and filename
-      messageType = 'image';
-    } else if (messageData.fileUrl) {
-      fileName = messageData.fileName || 'File';
-      previewText = `📎 ${fileName}`; // Icon and filename
-      messageType = 'file';
-    }
-
-    // If the message is from the sender, add "You: " before the icon
-    if (messageType === 'image' || messageType === 'file') {
-      if (messageData.senderId === getCurrentUser()?.uid) {
-        previewText = `You: ${previewText}`;
-      }
-    } else if (messageData.senderId === getCurrentUser()?.uid) {
-      previewText = `You: ${previewText}`;
-    }
-
-    // 3. Update the parent conversation document
+    // 2. Update the parent conversation document
     batch.update(conversationRef, {
-      lastMessageTimestamp: timestamp,
-      lastMessageText: previewText, // Use the determined preview text
-      lastMessageSenderId: messageData.senderId,
+      lastMessageTimestamp: finalMessageData.timestamp, // Use the same client timestamp
+      lastMessageText: finalMessageData.text || (finalMessageData.imageUrl ? 'Image' : ''), // Set preview text
+      lastMessageSenderId: finalMessageData.senderId,
+      // Optionally add unread counts here if needed
     });
-    console.log(`addMessage: Updating conversation ${conversationId} with lastMessageText: "${previewText}"`);
+    console.log(`addMessage: Added update operation for conversation ${conversationId}`);
 
+    // Commit the batch
     await batch.commit();
-    console.log(`addMessage: Message added successfully to ${conversationId} and conversation doc updated.`);
+    console.log(`addMessage: Batch committed successfully for message ${newMessageRef.id}`);
+
+    return newMessageRef.id; // Return the ID of the newly added message
+
   } catch (error) {
     console.error(`addMessage: Error adding message to conversation ${conversationId}:`, error);
+    // Re-throw the error so the calling function can handle it (e.g., show an alert)
     throw error;
   }
-};
-
-/**
- * Sets up a real-time listener for messages in a conversation.
- * Calls the provided callback function with the messages array whenever updates occur.
- * Returns an unsubscribe function.
- */
-export const getMessagesListener = (
-  conversationId: string,
-  callback: (messages: MessageData[]) => void,
-  onError: (error: Error) => void
-) => {
-  if (!conversationId) {
-    onError(new Error("Conversation ID is required for listener."));
-    return () => {}; // Return an empty unsubscribe function
-  }
-
-  console.log(`getMessagesListener: Setting up listener for conversation ${conversationId}`);
-  const messagesRef = collection(db, CONVERSATIONS_COLLECTION, conversationId, MESSAGES_SUBCOLLECTION);
-  const q = query(messagesRef, orderBy('timestamp', 'asc')); // Order messages chronologically
-
-  const unsubscribe = onSnapshot(q, (querySnapshot) => {
-    const messages: MessageData[] = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      // Convert Firestore Timestamp to JS Date if necessary for display
-      const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toDate() : new Date();
-      messages.push({
-        id: doc.id,
-        ...data,
-        timestamp: timestamp, // Ensure it's a Date object
-      } as MessageData); // Cast to your MessageData type
-    });
-    console.log(`getMessagesListener: Received ${messages.length} messages for ${conversationId}`);
-    callback(messages); // Pass the array of messages to the callback
-  }, (error) => {
-    console.error(`getMessagesListener: Error listening to conversation ${conversationId}:`, error);
-    onError(error); // Pass the error to the error callback
-  });
-
-  // Return the unsubscribe function for cleanup
-  return unsubscribe;
 };
 
 /**
@@ -495,17 +514,24 @@ export const getUserConversationsListener = (
   const q = query(
     conversationsRef,
     where('participants', 'array-contains', userId),
-    orderBy('lastMessageTimestamp', 'desc') // Most recent conversations first
+    orderBy('lastMessageTimestamp', 'desc')
   );
 
   const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+    // Check if user is still authenticated - ADDED
+    if (!getCurrentUser()?.uid) {
+      console.log("User no longer authenticated, stopping conversations listener");
+      callback([]);
+      return;
+    }
+    
     try {
       const conversations: ConversationWithProfiles[] = [];
       const profilePromises: Promise<any>[] = [];
       const conversationDocs: any[] = [];
       
       // First, collect all conversation documents and their participant IDs
-      querySnapshot.forEach((doc) => {
+      for (const doc of querySnapshot.docs) {
         const data = doc.data();
         const conversationData: ConversationWithProfiles = {
           id: doc.id,
@@ -517,29 +543,51 @@ export const getUserConversationsListener = (
           lastMessageText: data.lastMessageText || '',
           lastMessageSenderId: data.lastMessageSenderId || '',
           participantProfiles: {},
-          unreadCount: 0 // Will be calculated later if needed
+          unreadCount: 0
         };
         
-        // Find the ID of the other participant (not the current user)
+        // Find the ID of the other participant
         const otherUserId = conversationData.participants.find(id => id !== userId);
         
         if (otherUserId) {
-          // Add a promise to fetch this user's profile
-          profilePromises.push(
-            getUserProfile(otherUserId)
-              .then(profile => ({
-                userId: otherUserId,
-                profile: profile
-              }))
-              .catch(() => ({
-                userId: otherUserId,
-                profile: null // Handle missing profiles
-              }))
-          );
+          // Check if user is still authenticated - ADDED
+          if (!getCurrentUser()?.uid) {
+            console.log("User no longer authenticated, stopping profile fetch");
+            return;
+          }
           
-          conversationDocs.push(conversationData);
+          // Check if users are still matched
+          try {
+            const isMatched = await areUsersMatched(userId, otherUserId);
+            if (isMatched) {
+              // Only add matched conversations
+              profilePromises.push(
+                getUserProfile(otherUserId)
+                  .then(profile => ({
+                    userId: otherUserId,
+                    profile: profile
+                  }))
+                  .catch(() => ({
+                    userId: otherUserId,
+                    profile: null
+                  }))
+              );
+              conversationDocs.push(conversationData);
+            } else {
+              console.log(`Filtering out unmatched conversation with user ${otherUserId}`);
+            }
+          } catch (error) {
+            console.error(`Error checking match status for ${otherUserId}:`, error);
+          }
         }
-      });
+      }
+      
+      // Check again if user is still authenticated before waiting for profiles - ADDED
+      if (!getCurrentUser()?.uid) {
+        console.log("User no longer authenticated, stopping profile fetch");
+        callback([]);
+        return;
+      }
       
       // Wait for all profile fetches to complete
       const profileResults = await Promise.all(profilePromises);
@@ -549,24 +597,21 @@ export const getUserConversationsListener = (
         const conversation = conversationDocs[i];
         
         // Add all participant profiles
-        profileResults.forEach(({ userId, profile }) => {
+        profileResults.forEach(({ userId: profileUserId, profile }) => {
           if (profile) {
-            conversation.participantProfiles[userId] = profile;
+            conversation.participantProfiles[profileUserId] = profile;
             
             // If this is the other participant, also set otherParticipant for convenience
-            if (userId !== userId) {
+            if (profileUserId !== userId) {
               conversation.otherParticipant = profile;
             }
           }
         });
         
-        // Fetch the most recent message to display in the preview
-        // This could be optimized by storing the last message text in the conversation document
-        const lastMessagePromise = getLastMessage(conversation.id);
         conversations.push(conversation);
       }
       
-      console.log(`getUserConversationsListener: Found ${conversations.length} conversations for user ${userId}`);
+      console.log(`getUserConversationsListener: Found ${conversations.length} matched conversations for user ${userId}`);
       callback(conversations);
       
     } catch (error) {
@@ -574,7 +619,7 @@ export const getUserConversationsListener = (
       onError(error as Error);
     }
   }, (error) => {
-    console.error(`getUserConversationsListener: Error in listener for ${userId}:`, error);
+    console.error(`Error in conversations listener:`, error);
     onError(error);
   });
   
@@ -947,62 +992,252 @@ export const deleteMatch = async (currentUserId: string, otherUserId: string): P
   try {
     console.log(`Attempting to delete match between ${currentUserId} and ${otherUserId}`);
     
-    // Delete the current user's match document
-    const matchDoc1 = doc(db, MATCHES_COLLECTION, currentUserId, 'userMatches', otherUserId);
-    await deleteDoc(matchDoc1);
-    console.log(`Successfully deleted match document for current user`);
+    // 1. Delete the current user's match document
+    const currentUserMatchRef = doc(db, MATCHES_COLLECTION, currentUserId, 'userMatches', otherUserId);
+    await deleteDoc(currentUserMatchRef);
+    console.log(`Successfully deleted match from current user's collection`);
     
+    // 2. Delete the other user's match document - if this fails, we at least deleted our own
     try {
-      // Try to delete the other user's match document (might fail due to permissions)
-      const matchDoc2 = doc(db, MATCHES_COLLECTION, otherUserId, 'userMatches', currentUserId);
-      await deleteDoc(matchDoc2);
-      console.log(`Successfully deleted match document for other user`);
+      const otherUserMatchRef = doc(db, MATCHES_COLLECTION, otherUserId, 'userMatches', currentUserId);
+      await deleteDoc(otherUserMatchRef);
+      console.log(`Successfully deleted match from other user's collection`);
     } catch (error) {
-      console.warn("Could not delete other user's match document. This may be expected:", error);
-      // Continue anyway - we at least removed it from the current user's matches
+      // Log the error but continue - we at least deleted our own side
+      console.warn(`Could not delete match from other user's collection:`, error);
     }
     
+    // 3. Delete the conversation if it exists
     try {
-      // Try to delete the conversation
       const conversationRef = doc(db, CONVERSATIONS_COLLECTION, conversationId);
-      
-      // Check if conversation exists first
       const conversationSnap = await getDoc(conversationRef);
+      
       if (conversationSnap.exists()) {
         await deleteDoc(conversationRef);
-        console.log(`Successfully deleted conversation document`);
-      } else {
-        console.log(`Conversation document doesn't exist, skipping deletion`);
+        console.log(`Successfully deleted conversation`);
       }
     } catch (error) {
-      console.warn("Could not delete conversation:", error);
+      console.warn(`Could not delete conversation:`, error);
     }
     
+    // 4. Delete messages
     try {
-      // Try to delete messages
       const messagesRef = collection(db, CONVERSATIONS_COLLECTION, conversationId, MESSAGES_SUBCOLLECTION);
-      const messagesSnapshot = await getDocs(messagesRef);
+      const messagesSnap = await getDocs(messagesRef);
       
-      console.log(`Found ${messagesSnapshot.size} messages to delete`);
-      
-      // Delete each message individually
-      for (const doc of messagesSnapshot.docs) {
-        try {
-          await deleteDoc(doc.ref);
-        } catch (messageError) {
-          console.warn(`Could not delete message ${doc.id}:`, messageError);
-        }
-      }
-      
-      console.log(`Finished attempting to delete messages`);
+      const deletePromises = messagesSnap.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      console.log(`Successfully deleted ${messagesSnap.size} messages`);
     } catch (error) {
-      console.warn("Could not delete messages:", error);
+      console.warn(`Could not delete messages:`, error);
     }
     
-    console.log(`Match deletion process completed successfully`);
     return true;
   } catch (error) {
-    console.error("Error deleting match and conversation:", error);
-    return false;
+    console.error(`Error in deleteMatch:`, error);
+    throw error;
   }
 };
+
+// Add a new function to validate and fix inconsistent matches
+export const validateAndFixMatches = async (userId: string): Promise<number> => {
+  if (!userId) {
+    console.error("validateAndFixMatches: User ID is required.");
+    return 0;
+  }
+
+  try {
+    let fixedCount = 0;
+    console.log(`validateAndFixMatches: Starting validation for user ${userId}`);
+
+    // 1. Get all matches for the current user
+    const userMatchesRef = collection(db, MATCHES_COLLECTION, userId, 'userMatches');
+    const matchesSnapshot = await getDocs(userMatchesRef);
+    console.log(`validateAndFixMatches: Found ${matchesSnapshot.size} potential matches for user ${userId}.`);
+
+    // 2. Check each match for consistency
+    const validationPromises = matchesSnapshot.docs.map(async (matchDoc) => {
+      const otherUserId = matchDoc.id;
+      const otherUserMatchRef = doc(db, MATCHES_COLLECTION, otherUserId, 'userMatches', userId);
+
+      try {
+        // Check if the other user has a matching document
+        const otherUserMatch = await getDoc(otherUserMatchRef);
+
+        // If match is inconsistent (one-sided), delete our side
+        if (!otherUserMatch.exists()) {
+          console.log(`validateAndFixMatches: Inconsistency detected: ${userId} has match with ${otherUserId}, but not vice versa.`);
+
+          // Delete the invalid match
+          await deleteDoc(doc(db, MATCHES_COLLECTION, userId, 'userMatches', otherUserId));
+          console.log(`validateAndFixMatches: Deleted inconsistent match document for ${userId} -> ${otherUserId}`);
+          return 1; // Indicate one fix was made
+        }
+      } catch (checkError) {
+        console.error(`validateAndFixMatches: Error checking match with ${otherUserId}:`, checkError);
+      }
+      return 0; // Indicate no fix was made for this match
+    });
+
+    // Wait for all validations and sum up the fixes
+    const results = await Promise.all(validationPromises);
+    fixedCount = results.reduce((sum, count) => sum + count, 0);
+
+    console.log(`validateAndFixMatches: Finished validation. Fixed ${fixedCount} inconsistent matches for user ${userId}`);
+    return fixedCount;
+  } catch (error) {
+    console.error(`validateAndFixMatches: Error validating matches for user ${userId}:`, error);
+    return 0;
+  }
+};
+
+// Refine getMessagesListener with more logging
+export const getMessagesListener = (
+  conversationId: string,
+  callback: (messages: MessageData[]) => void,
+  onError: (error: Error) => void
+): (() => void) => {
+  let messagesUnsubscribe: (() => void) | null = null; // To store the inner listener's unsubscribe
+
+  if (!conversationId) {
+    onError(new Error("getMessagesListener: Conversation ID is required."));
+    return () => {}; // Return empty unsubscribe
+  }
+
+  const currentUser = getCurrentUser();
+  if (!currentUser?.uid) {
+    onError(new Error("getMessagesListener: No authenticated user."));
+    return () => {};
+  }
+  const currentUserId = currentUser.uid;
+
+  console.log(`getMessagesListener: Setting up main listener for conversation ${conversationId}`);
+
+  const conversationRef = doc(db, CONVERSATIONS_COLLECTION, conversationId);
+
+  // Listener for the conversation document itself (to check match status)
+  const conversationUnsubscribe = onSnapshot(conversationRef, async (conversationSnap) => {
+    // Check auth status again inside async callback
+    if (!getCurrentUser()?.uid) {
+        console.log(`getMessagesListener (Conv): User logged out during check for ${conversationId}.`);
+        if (messagesUnsubscribe) messagesUnsubscribe(); // Stop listening to messages
+        messagesUnsubscribe = null;
+        callback([]); // Clear messages
+        return;
+    }
+
+    if (!conversationSnap.exists()) {
+      console.warn(`getMessagesListener (Conv): Conversation ${conversationId} does not exist.`);
+      if (messagesUnsubscribe) messagesUnsubscribe();
+      messagesUnsubscribe = null;
+      callback([]);
+      onError(new Error("Conversation not found.")); // Notify caller
+      return;
+    }
+
+    const data = conversationSnap.data();
+    const participants = data?.participants || [];
+    const otherUserId = participants.find(id => id !== currentUserId);
+
+    if (!otherUserId) {
+      console.error(`getMessagesListener (Conv): Could not determine other participant in ${conversationId}`);
+      if (messagesUnsubscribe) messagesUnsubscribe();
+      messagesUnsubscribe = null;
+      callback([]);
+      onError(new Error("Could not identify participants."));
+      return;
+    }
+
+    // Check if users are matched
+    try {
+      const isMatched = await areUsersMatched(currentUserId, otherUserId);
+      if (!getCurrentUser()?.uid) return; // Check auth again after async
+
+      if (!isMatched) {
+        console.log(`getMessagesListener (Conv): Users ${currentUserId} and ${otherUserId} are not matched. Stopping message listener.`);
+        if (messagesUnsubscribe) messagesUnsubscribe(); // Stop listening to messages if not matched
+        messagesUnsubscribe = null;
+        callback([]); // Clear messages
+        // Don't necessarily call onError, just clear messages
+        return;
+      }
+
+      // If matched and message listener isn't running, start it
+      if (!messagesUnsubscribe) {
+          console.log(`getMessagesListener (Msg): Users matched. Setting up messages listener for ${conversationId}`);
+          const messagesRef = collection(db, CONVERSATIONS_COLLECTION, conversationId, MESSAGES_SUBCOLLECTION);
+          const q = query(messagesRef, orderBy('timestamp', 'asc'));
+
+          messagesUnsubscribe = onSnapshot(q, (querySnapshot) => {
+            // Check auth inside message listener callback
+            if (!getCurrentUser()?.uid) {
+                console.log(`getMessagesListener (Msg): User logged out during message update for ${conversationId}.`);
+                return; // Don't process if logged out
+            }
+
+            console.log(`getMessagesListener (Msg): Received ${querySnapshot.size} messages for ${conversationId}.`);
+            const messages: MessageData[] = [];
+            querySnapshot.forEach((doc) => {
+              const data = doc.data();
+              // Convert Firestore Timestamp to JS Date
+              const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toDate() : new Date();
+              messages.push({
+                id: doc.id,
+                ...data,
+                timestamp: timestamp,
+              } as MessageData);
+            });
+            // Log the processed messages before calling callback
+            // console.log(`getMessagesListener (Msg): Processed messages:`, messages);
+            callback(messages); // Send processed messages to the component
+
+          }, (error) => {
+            // Check auth inside error callback
+            if (!getCurrentUser()?.uid) {
+                 console.log(`getMessagesListener (Msg): User logged out, ignoring error for ${conversationId}.`);
+                 return; // Don't process if logged out
+            }
+            console.error(`getMessagesListener (Msg): Error listening to messages for ${conversationId}:`, error);
+            // Check for permission errors specifically
+            if (error.code === 'permission-denied') {
+                 console.warn("Messages listener: Permission denied. User likely logged out or unmatched.");
+                 onError(new Error("Permission denied accessing messages.")); // Notify caller
+            } else {
+                 onError(error); // Notify caller of other errors
+            }
+            messagesUnsubscribe = null; // Stop trying on error
+            callback([]); // Clear messages on error
+          });
+      }
+
+    } catch (matchCheckError) {
+      console.error(`getMessagesListener (Conv): Error checking match status for ${conversationId}:`, matchCheckError);
+      if (messagesUnsubscribe) messagesUnsubscribe();
+      messagesUnsubscribe = null;
+      callback([]);
+      onError(new Error("Failed to verify match status."));
+    }
+
+  }, (convError) => {
+    // Check auth inside conversation error callback
+    if (!getCurrentUser()?.uid) {
+         console.log(`getMessagesListener (Conv): User logged out, ignoring conversation listener error for ${conversationId}.`);
+         return;
+    }
+    console.error(`getMessagesListener (Conv): Error listening to conversation ${conversationId}:`, convError);
+    if (messagesUnsubscribe) messagesUnsubscribe(); // Clean up inner listener if outer fails
+    messagesUnsubscribe = null;
+    callback([]);
+    onError(convError);
+  });
+
+  // Return a function that unsubscribes BOTH listeners
+  return () => {
+    console.log(`getMessagesListener: Cleaning up listeners for conversation ${conversationId}`);
+    conversationUnsubscribe();
+    if (messagesUnsubscribe) {
+      messagesUnsubscribe();
+    }
+  };
+};
+

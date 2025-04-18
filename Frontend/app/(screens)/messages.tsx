@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   TextInput,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Search, X } from 'lucide-react-native';
@@ -28,7 +29,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db } from '../../src/firebase/config';
-import { getUserProfile } from '../../src/firebase/firestore';
+import { getUserProfile, areUsersMatched } from '../../src/firebase/firestore';
 
 const PLACEHOLDER_IMAGE_URI = 'https://via.placeholder.com/100/374151/e5e7eb?text=No+Pic';
 const CONVERSATIONS_COLLECTION = 'conversations'; // Collection name for conversations
@@ -77,13 +78,10 @@ export default function MessagesScreen() {
 
     console.log("Setting up conversations listener for user:", user.uid);
     
-    // Query all conversations where the current user is a participant
     const conversationsRef = collection(db, CONVERSATIONS_COLLECTION);
     const q = query(
       conversationsRef,
-      where('participants', 'array-contains', user.uid),
-      // Remove the orderBy temporarily until index is created
-      // orderBy('lastMessageTimestamp', 'desc')
+      where('participants', 'array-contains', user.uid)
     );
 
     const unsubscribe = onSnapshot(q, async (querySnapshot) => {
@@ -96,6 +94,13 @@ export default function MessagesScreen() {
           // Find the ID of the other participant
           const otherUserId = data.participants.find(id => id !== user.uid);
           if (!otherUserId) continue;
+          
+          // Check if users are still matched
+          const isMatched = await areUsersMatched(user.uid, otherUserId);
+          if (!isMatched) {
+            console.log(`Filtering out unmatched conversation with user ${otherUserId}`);
+            continue;
+          }
           
           // Get other user's profile
           const otherUserProfile = await getUserProfile(otherUserId);
@@ -174,7 +179,8 @@ export default function MessagesScreen() {
             lastMessageType: lastMessageInfo.type,
             lastMessageFileName: lastMessageInfo.fileName,
             // We'll implement unread count later
-            unreadCount: 0
+            unreadCount: 0,
+            isMatched: true
           });
         }
         
@@ -187,18 +193,13 @@ export default function MessagesScreen() {
         
         setConversations(conversationData);
         setLoading(false);
-      } catch (err) {
-        console.error("Error processing conversations:", err);
+      } catch (error) {
+        console.error("Error processing conversations:", error);
         setError("Failed to load conversations");
         setLoading(false);
       }
-    }, (err) => {
-      console.error("Error in conversations listener:", err);
-      setError("Failed to load conversations. Please check your connection.");
-      setLoading(false);
     });
     
-    // Clean up listener on unmount
     return () => unsubscribe();
   }, []);
 
@@ -209,21 +210,22 @@ export default function MessagesScreen() {
   });
 
   // Navigate to conversation
-  const handleConversationPress = (conversation) => {
+  const handleConversationPress = async (otherUserId: string) => {
+    if (!currentUser?.uid) {
+      Alert.alert("Error", "You need to be logged in to view messages.");
+      return;
+    }
+
     try {
-      const otherUserId = conversation.otherUserId;
-      if (!otherUserId) {
-        console.error("Missing other user ID for conversation:", conversation.id);
+      const isMatched = await areUsersMatched(currentUser.uid, otherUserId);
+      if (!isMatched) {
+        Alert.alert("Cannot Access Conversation", "You can only message users you've matched with.");
         return;
       }
-      
-      // Use the router.push method with explicit screen path
-      router.push({
-        pathname: "/(screens)/conversation/[id]",
-        params: { id: otherUserId }
-      });
-    } catch (err) {
-      console.error("Navigation error:", err);
+      router.push(`/conversation/${otherUserId}`);
+    } catch (error) {
+      console.error("Error checking match status:", error);
+      Alert.alert("Error", "Failed to access conversation. Please try again.");
     }
   };
 
@@ -278,7 +280,7 @@ export default function MessagesScreen() {
     return (
       <TouchableOpacity
         style={styles.conversationItem}
-        onPress={() => handleConversationPress(item)}
+        onPress={() => handleConversationPress(item.otherUserId)}
       >
         <Image
           source={{ uri: photoURL }}
