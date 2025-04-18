@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useImperativeHandle, forwardRef, useEffect } from 'react';
 import {
   Animated,
   PanResponder,
@@ -32,46 +32,108 @@ interface UserProfileData {
   };
   photoURL?: string | null;
   photos?: string[];
+  compatibilityScore?: number;
   [key: string]: any;
 }
 
 interface SwipeableCardProps {
   profile: UserProfileData;
-  onSwipeLeft: (profile: UserProfileData) => void;
-  onSwipeRight: (profile: UserProfileData) => void;
+  onSwipeComplete: (direction: 'left' | 'right') => void;
   isFirst: boolean;
+}
+
+// Define the type for the ref
+export interface SwipeableCardRef {
+  swipeLeft: () => void;
+  swipeRight: () => void;
+  resetPosition: () => void;
 }
 
 // Define a placeholder image URI
 const PLACEHOLDER_IMAGE_URI = 'https://via.placeholder.com/400/374151/e5e7eb?text=No+Photo';
 
-export const SwipeableCard: React.FC<SwipeableCardProps> = ({
+// Use forwardRef to allow parent component to call methods
+export const SwipeableCard = forwardRef<SwipeableCardRef, SwipeableCardProps>(({
   profile,
-  onSwipeLeft,
-  onSwipeRight,
+  onSwipeComplete,
   isFirst,
-}) => {
+}, ref) => {
   const position = useRef(new Animated.ValueXY()).current;
-  
-  // Opacity for the text indicators
-  const likeOpacity = position.x.interpolate({
-    inputRange: [0, SWIPE_THRESHOLD / 2], // Fade in faster
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
-  const nopeOpacity = position.x.interpolate({
-    inputRange: [-SWIPE_THRESHOLD / 2, 0], // Fade in faster
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
+  // Create a ref to store the LATEST value of the isFirst prop
+  const isFirstRef = useRef(isFirst);
 
+  // Keep the isFirstRef updated whenever the prop changes
+  useEffect(() => {
+    isFirstRef.current = isFirst;
+    // Log when the ref is updated for debugging
+    console.log(`Card ${profile.id}: useEffect updated isFirstRef.current to: ${isFirst}`);
+  }, [isFirst, profile.id]); // Depend on isFirst prop
+
+  // Define swipe actions internally
+  const resetPosition = () => {
+    Animated.spring(position, {
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: Platform.OS !== 'web', // Use native driver where possible
+    }).start();
+  };
+
+  const swipeLeft = () => {
+    console.log(`Card ${profile.id}: swipeLeft called`);
+    Animated.timing(position, {
+      toValue: { x: -SCREEN_WIDTH * 1.5, y: 0 }, // Animate off-screen left
+      duration: SWIPE_OUT_DURATION,
+      useNativeDriver: Platform.OS !== 'web',
+    }).start(() => {
+      console.log(`Card ${profile.id}: swipeLeft finished, calling onSwipeComplete`);
+      // Call the completion handler AFTER animation
+      onSwipeComplete('left');
+    });
+  };
+
+  const swipeRight = () => {
+    console.log(`Card ${profile.id}: swipeRight called`);
+    Animated.timing(position, {
+      toValue: { x: SCREEN_WIDTH * 1.5, y: 0 }, // Animate off-screen right
+      duration: SWIPE_OUT_DURATION,
+      useNativeDriver: Platform.OS !== 'web',
+    }).start(() => {
+      console.log(`Card ${profile.id}: swipeRight finished, calling onSwipeComplete`);
+      // Call the completion handler AFTER animation
+      onSwipeComplete('right');
+    });
+  };
+
+  // Expose methods via ref for the Deck to use
+  useImperativeHandle(ref, () => ({
+    swipeLeft,
+    swipeRight,
+    resetPosition,
+  }));
+
+  // Keep the PanResponder instance stable with useRef,
+  // but make sure callbacks read the latest state from isFirstRef.current.
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => isFirst,
+      onStartShouldSetPanResponder: (evt, gestureState) => {
+        // Read the latest value from the ref
+        const shouldSet = isFirstRef.current;
+        console.log(`Card ${profile.id}: onStartShouldSetPanResponder - shouldSet = ${shouldSet}`);
+        return shouldSet;
+      },
       onPanResponderMove: (event, gesture) => {
-        position.setValue({ x: gesture.dx, y: gesture.dy });
+        // Only move if this card is currently the first one
+        if (isFirstRef.current) {
+          position.setValue({ x: gesture.dx, y: gesture.dy });
+        }
+      },
+      onPanResponderGrant: (evt, gestureState) => {
+        if (isFirstRef.current) {
+          console.log(`Card ${profile.id}: PanResponder granted`);
+        }
       },
       onPanResponderRelease: (event, gesture) => {
+        if (!isFirstRef.current) return; // Check ref again
+        console.log(`Card ${profile.id}: PanResponder released, dx=${gesture.dx}`);
         if (gesture.dx > SWIPE_THRESHOLD) {
           swipeRight();
         } else if (gesture.dx < -SWIPE_THRESHOLD) {
@@ -80,33 +142,43 @@ export const SwipeableCard: React.FC<SwipeableCardProps> = ({
           resetPosition();
         }
       },
+      onPanResponderTerminate: (evt, gestureState) => {
+        // Reset only if it was the active card
+        if (isFirstRef.current) {
+          console.log(`Card ${profile.id}: PanResponder terminated, resetting position.`);
+          resetPosition();
+        }
+      },
+      onShouldBlockNativeResponder: (evt, gestureState) => true,
     })
-  ).current;
+  ).current; // Keep .current here
 
-  const resetPosition = () => {
-    Animated.spring(position, {
-      toValue: { x: 0, y: 0 },
-      useNativeDriver: false, // Required for layout animations like rotation
-    }).start();
+  // Calculate rotation and opacity based on position
+  const rotate = position.x.interpolate({
+      inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
+      outputRange: ['-10deg', '0deg', '10deg'],
+      extrapolate: 'clamp',
+  });
+  const likeOpacity = position.x.interpolate({
+      inputRange: [0, SWIPE_THRESHOLD / 2],
+      outputRange: [0, 1],
+      extrapolate: 'clamp',
+  });
+  const nopeOpacity = position.x.interpolate({
+      inputRange: [-SWIPE_THRESHOLD / 2, 0],
+      outputRange: [1, 0],
+      extrapolate: 'clamp',
+  });
+
+  // Apply animated styles
+  const animatedCardStyle = {
+    transform: [
+        { rotate },
+        ...position.getTranslateTransform()
+    ],
   };
 
-  const swipeLeft = () => {
-    Animated.timing(position, {
-      toValue: { x: -SCREEN_WIDTH * 1.5, y: 0 },
-      duration: SWIPE_OUT_DURATION,
-      useNativeDriver: false,
-    }).start(() => onSwipeLeft(profile));
-  };
-
-  const swipeRight = () => {
-    Animated.timing(position, {
-      toValue: { x: SCREEN_WIDTH * 1.5, y: 0 },
-      duration: SWIPE_OUT_DURATION,
-      useNativeDriver: false,
-    }).start(() => onSwipeRight(profile));
-  };
-
-  // Get the main display image
+  // Get image URL
   const mainImageUrl = profile.photoURL || 
                       (profile.photos && profile.photos.length > 0 ? profile.photos[0] : null) || 
                       PLACEHOLDER_IMAGE_URI;
@@ -118,25 +190,27 @@ export const SwipeableCard: React.FC<SwipeableCardProps> = ({
   const location = profile.preferences?.location || '';
   const bio = profile.basicInfo?.bio || '';
 
-  const cardStyle = {
-    transform: [
-      {
-        rotate: position.x.interpolate({
-          inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
-          outputRange: ['-15deg', '0deg', '15deg'], // Slightly more rotation
-          extrapolate: 'clamp',
-        }),
-      },
-      ...position.getTranslateTransform(),
-    ],
-  };
-
   return (
     <Animated.View
-      style={[styles.card, cardStyle, { zIndex: isFirst ? 1 : 0 }]} // Ensure top card is interactable
+      style={[
+        styles.card,
+        animatedCardStyle,
+        { zIndex: isFirst ? 1 : 0 }, // Simple zIndex based on being top
+      ]}
+      // Conditionally attach handlers based on the 'isFirst' PROP.
+      // The handlers themselves check 'isFirstRef.current' internally.
       {...(isFirst ? panResponder.panHandlers : {})}
     >
       <Image source={{ uri: mainImageUrl }} style={styles.image} />
+
+      {/* Compatibility Score Badge */}
+      {profile.compatibilityScore !== undefined && (
+        <View style={styles.scoreBadge}>
+          <Text style={styles.scoreText}>
+            {Math.round(profile.compatibilityScore)}% Match
+          </Text>
+        </View>
+      )}
 
       {/* Icon Overlays for Like/Nope */}
       {isFirst && ( // Only show indicators on the top card
@@ -182,7 +256,7 @@ export const SwipeableCard: React.FC<SwipeableCardProps> = ({
       </LinearGradient>
     </Animated.View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   card: {
@@ -257,5 +331,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     lineHeight: 20,
-  }
+  },
+  scoreBadge: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    backgroundColor: 'rgba(8, 145, 178, 0.85)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  scoreText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
 });

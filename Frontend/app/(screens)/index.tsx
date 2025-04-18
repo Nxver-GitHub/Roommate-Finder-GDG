@@ -1,65 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, SafeAreaView, Text, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { View, StyleSheet, SafeAreaView, Text, ActivityIndicator, TouchableOpacity, Alert, Modal } from 'react-native';
+import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import { getCurrentUser } from '../../src/firebase/auth';
-import { getDiscoverableUsers, recordSwipe } from '../../src/firebase/firestore';
+import { getDiscoverableUsersWithScores, recordSwipe } from '../../src/firebase/firestore';
 import { SwipeableDeck } from '../../src/components/SwipeableCard/SwipeableDeck';
 import { Filter as FilterIcon } from 'lucide-react-native';
 import { useFilters } from '../../src/contexts/FilterContext';
 import { SearchFilters, defaultFilters } from '../../src/services/searchService';
-
-interface UserProfileData {
-    id?: string;
-    basicInfo?: { firstName?: string; lastName?: string; age?: number; };
-    preferences?: { location?: string; budget?: { min?: number; max?: number }; };
-    photoURL?: string | null;
-    [key: string]: any;
-}
-
-const calculateMatchScore = (profile: UserProfileData, filters: SearchFilters): number => {
-    let score = 0;
-    const weight = {
-        gender: 5,
-        budgetOverlap: 3,
-        lifestyleBoolean: 2,
-        lifestyleRatingProximity: 1,
-    };
-
-    if (filters.genderPreference && filters.genderPreference !== 'Any') {
-        if (profile.basicInfo?.gender === filters.genderPreference) {
-            score += weight.gender;
-        } else {
-            score -= weight.gender;
-        }
-    }
-
-    const userMinBudget = profile.preferences?.budget?.min ?? 0;
-    const userMaxBudget = profile.preferences?.budget?.max ?? Infinity;
-    const filterMin = filters.budgetRange.min;
-    const filterMax = filters.budgetRange.max;
-    if (Math.max(userMinBudget, filterMin) <= Math.min(userMaxBudget, filterMax)) {
-        score += weight.budgetOverlap;
-    }
-
-    if (filters.lifestyle?.smoking !== null && profile.lifestyle?.smoking === filters.lifestyle.smoking) {
-        score += weight.lifestyleBoolean;
-    } else if (filters.lifestyle?.smoking !== null && profile.lifestyle?.smoking !== filters.lifestyle.smoking) {
-        score -= weight.lifestyleBoolean;
-    }
-    if (filters.lifestyle?.pets !== null && profile.lifestyle?.pets === filters.lifestyle.pets) {
-        score += weight.lifestyleBoolean;
-    } else if (filters.lifestyle?.pets !== null && profile.lifestyle?.pets !== filters.lifestyle.pets) {
-        score -= weight.lifestyleBoolean;
-    }
-    
-    if (filters.lifestyle?.cleanliness !== null && filters.lifestyle.cleanliness > 0) {
-        const userCleanliness = profile.lifestyle?.cleanliness ?? 3;
-        const diff = Math.abs(userCleanliness - filters.lifestyle.cleanliness);
-        score += Math.max(0, weight.lifestyleRatingProximity * (5 - diff));
-    }
-
-    return score;
-};
+import { UserProfileData } from '../../src/types/profile';
 
 export default function DiscoverScreen() {
     const router = useRouter();
@@ -68,6 +16,8 @@ export default function DiscoverScreen() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [matchModalVisible, setMatchModalVisible] = useState(false);
+    const [matchedUser, setMatchedUser] = useState<UserProfileData | null>(null);
 
     const fetchProfiles = useCallback(async () => {
         setError(null);
@@ -81,20 +31,12 @@ export default function DiscoverScreen() {
         }
 
         try {
-            console.log("Discover: Fetching ALL profiles...");
-            const fetchedProfiles = await getDiscoverableUsers(currentUser.uid);
+            console.log("Discover: Fetching profiles with compatibility scoring:", JSON.stringify(activeFilters, null, 2));
+            const fetchedProfiles = await getDiscoverableUsersWithScores(currentUser.uid, activeFilters);
 
-            console.log(`Discover: Calculating scores based on filters:`, activeFilters);
-            
-            const profilesWithScores = fetchedProfiles.map(profile => ({
-                ...profile,
-                _matchScore: calculateMatchScore(profile, activeFilters)
-            }));
+            console.log(`Discover: Received ${fetchedProfiles.length} profiles with compatibility scores.`);
 
-            const sortedProfiles = profilesWithScores.sort((a, b) => b._matchScore - a._matchScore);
-            
-            console.log(`Discover: Setting ${sortedProfiles.length} profiles, sorted by score.`);
-            setProfiles(sortedProfiles);
+            setProfiles(fetchedProfiles);
 
         } catch (err) {
             console.error("Discover: Failed to fetch/process profiles -", err);
@@ -105,6 +47,16 @@ export default function DiscoverScreen() {
             setRefreshing(false);
         }
     }, [activeFilters, refreshing]);
+
+    useFocusEffect(
+        useCallback(() => {
+            console.log("Discover screen is focused - fetching profiles");
+            fetchProfiles();
+            return () => {
+                // Optional cleanup
+            };
+        }, [fetchProfiles])
+    );
 
     useEffect(() => {
         fetchProfiles();
@@ -123,12 +75,27 @@ export default function DiscoverScreen() {
         }
     };
 
-    const handleSwipeRight = (profile: UserProfileData) => {
+    const handleSwipeRight = async (profile: UserProfileData) => {
         console.log("Swiped right (like) on:", profile.id);
         const currentUser = getCurrentUser();
         if (currentUser?.uid && profile.id) {
-            recordSwipe(currentUser.uid, profile.id, true)
-                .catch(err => console.error("Error recording like swipe:", err));
+            try {
+                // Use await to get the result of recordSwipe
+                const result = await recordSwipe(currentUser.uid, profile.id, true);
+                
+                // Check if it's a match
+                if (result.matched) {
+                    console.log("It's a match! Matched with:", result.matchedUserId || profile.id);
+                    
+                    // Set the matched user for the modal
+                    setMatchedUser(result.matchedUserProfile || profile);
+                    
+                    // Show match modal
+                    setMatchModalVisible(true);
+                }
+            } catch (err) {
+                console.error("Error recording like swipe:", err);
+            }
         }
     };
 
@@ -138,6 +105,20 @@ export default function DiscoverScreen() {
 
     const navigateToSearch = () => {
         router.push('/(screens)/search');
+    };
+
+    // Function to handle going to messages with the matched user
+    const handleGoToMessages = () => {
+        setMatchModalVisible(false);
+        if (matchedUser?.id) {
+            router.push(`/conversation/${matchedUser.id}`);
+        }
+    };
+
+    // Function to continue browsing
+    const handleContinueBrowsing = () => {
+        setMatchModalVisible(false);
+        // User continues on the discover screen
     };
 
     return (
@@ -167,8 +148,8 @@ export default function DiscoverScreen() {
                </View>
             ) : profiles.length === 0 ? (
                <View style={styles.centerContainer}>
-                  <Text style={styles.emptyText}>No roommates found nearby.</Text>
-                  <Text style={styles.emptySubText}>Expand your search or check back later!</Text>
+                  <Text style={styles.emptyText}>No roommates found matching your criteria.</Text>
+                  <Text style={styles.emptySubText}>Try adjusting your filters or check back later!</Text>
                   <TouchableOpacity onPress={onRefresh} style={styles.retryButton}>
                       <Text style={styles.retryText}>Refresh</Text>
                   </TouchableOpacity>
@@ -183,6 +164,37 @@ export default function DiscoverScreen() {
                   isRefreshing={refreshing}
                />
             )}
+            
+            {/* Match Modal */}
+            <Modal
+                animationType="fade"
+                transparent={true}
+                visible={matchModalVisible}
+                onRequestClose={() => setMatchModalVisible(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContainer}>
+                        <Text style={styles.matchTitle}>It's a Match!</Text>
+                        <Text style={styles.matchSubtitle}>
+                            You and {matchedUser?.basicInfo?.firstName || 'this user'} have liked each other.
+                        </Text>
+                        
+                        <TouchableOpacity
+                            style={[styles.modalButton, styles.primaryButton]}
+                            onPress={handleGoToMessages}
+                        >
+                            <Text style={styles.primaryButtonText}>Send a Message</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                            style={[styles.modalButton, styles.secondaryButton]}
+                            onPress={handleContinueBrowsing}
+                        >
+                            <Text style={styles.secondaryButtonText}>Keep Browsing</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -237,5 +249,56 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 16,
         fontWeight: 'bold',
-    }
+    },
+    modalOverlay: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    },
+    modalContainer: {
+        width: '80%',
+        backgroundColor: '#1f2937',
+        borderRadius: 16,
+        padding: 20,
+        alignItems: 'center',
+        elevation: 5,
+    },
+    matchTitle: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#FFD700',
+        marginBottom: 10,
+    },
+    matchSubtitle: {
+        fontSize: 16,
+        color: '#FFFFFF',
+        textAlign: 'center',
+        marginBottom: 20,
+    },
+    modalButton: {
+        width: '100%',
+        padding: 15,
+        borderRadius: 8,
+        marginVertical: 5,
+        alignItems: 'center',
+    },
+    primaryButton: {
+        backgroundColor: '#0891b2',
+    },
+    primaryButtonText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    secondaryButton: {
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderColor: '#0891b2',
+    },
+    secondaryButtonText: {
+        color: '#0891b2',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
 });

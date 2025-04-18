@@ -150,7 +150,11 @@ export default function FilterModal({
         </View>
 
         <View style={styles.navigationContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            nestedScrollEnabled={true}
+          >
             {sections.map((section, index) => (
               <TouchableOpacity
                 key={index}

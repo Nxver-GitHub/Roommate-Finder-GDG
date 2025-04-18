@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
-import { SwipeableCard } from './SwipeableCard';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator, Dimensions, Animated } from 'react-native';
+import { SwipeableCard, SwipeableCardRef } from './SwipeableCard';
 import { Check, X, RefreshCw } from 'lucide-react-native';
 
 // Use your actual profile data type
@@ -29,6 +29,8 @@ interface SwipeableDeckProps {
 }
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const SWIPE_OUT_DURATION = 250;
 
 export const SwipeableDeck: React.FC<SwipeableDeckProps> = ({
   profiles,
@@ -39,45 +41,38 @@ export const SwipeableDeck: React.FC<SwipeableDeckProps> = ({
   isRefreshing = false,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const currentCardRef = useRef<SwipeableCardRef>(null);
 
-  // Reset index if profiles change
   useEffect(() => {
-    if (profiles.length > 0) {
-      setCurrentIndex(0);
-    }
+    console.log("Profiles changed, resetting index to 0");
+    setCurrentIndex(0);
   }, [profiles]);
 
-  // Check if deck is empty
   useEffect(() => {
     if (currentIndex >= profiles.length && profiles.length > 0) {
+      console.log("Deck is empty, calling onDeckEmpty");
       onDeckEmpty();
     }
   }, [currentIndex, profiles, onDeckEmpty]);
 
-  const handleSwipeLeft = useCallback((profile: UserProfileData) => {
-    setCurrentIndex(prev => prev + 1);
-    onSwipeLeft(profile);
-  }, [onSwipeLeft]);
-
-  const handleSwipeRight = useCallback((profile: UserProfileData) => {
-    setCurrentIndex(prev => prev + 1);
-    onSwipeRight(profile);
-  }, [onSwipeRight]);
-
-  // Manual controls for swiping
-  const handleManualSwipeLeft = () => {
-    if (profiles.length > 0 && currentIndex < profiles.length) {
-      handleSwipeLeft(profiles[currentIndex]);
+  const handleSwipeComplete = useCallback((direction: 'left' | 'right') => {
+    const swipedProfile = profiles[currentIndex];
+    if (direction === 'left') {
+      onSwipeLeft(swipedProfile);
+    } else {
+      onSwipeRight(swipedProfile);
     }
+    setCurrentIndex(prevIndex => prevIndex + 1);
+  }, [currentIndex, profiles, onSwipeLeft, onSwipeRight]);
+
+  const handleManualSwipeLeft = () => {
+    currentCardRef.current?.swipeLeft();
   };
 
   const handleManualSwipeRight = () => {
-    if (profiles.length > 0 && currentIndex < profiles.length) {
-      handleSwipeRight(profiles[currentIndex]);
-    }
+    currentCardRef.current?.swipeRight();
   };
 
-  // If no profiles or all profiles swiped
   if (!profiles || profiles.length === 0 || currentIndex >= profiles.length) {
     return (
       <View style={styles.emptyContainer}>
@@ -98,26 +93,35 @@ export const SwipeableDeck: React.FC<SwipeableDeckProps> = ({
     );
   }
 
-  // Render the cards and controls
+  console.log(`Rendering deck. Current index: ${currentIndex}, Profile count: ${profiles.length}`);
+
   return (
     <View style={styles.container}>
-      {/* Container for the swipeable cards */}
       <View style={styles.deckContainer}>
         {profiles
-          .slice(currentIndex, currentIndex + 3)
+          .slice(currentIndex)
           .reverse()
-          .map((profile, index) => (
-            <SwipeableCard
-              key={profile.id || `deck-${currentIndex + index}`}
-              profile={profile}
-              onSwipeLeft={handleSwipeLeft}
-              onSwipeRight={handleSwipeRight}
-              isFirst={index === profiles.slice(currentIndex, currentIndex + 3).length - 1}
-            />
-          ))}
+          .map((profile, indexInReversedSlice) => {
+            const originalIndex = profiles.length - 1 - indexInReversedSlice;
+            const isTopCard = originalIndex === currentIndex;
+            
+            console.log(`Rendering card: originalIndex=${originalIndex}, isTopCard=${isTopCard}, profileId=${profile.id}`);
+
+            if (originalIndex < currentIndex + 3) {
+               return (
+                 <SwipeableCard
+                   key={profile.id || `deck-card-${currentIndex + (profiles.slice(currentIndex).length - 1 - indexInReversedSlice)}`}
+                   ref={isTopCard ? currentCardRef : null}
+                   profile={profile}
+                   onSwipeComplete={handleSwipeComplete}
+                   isFirst={isTopCard}
+                 />
+               );
+            }
+            return null;
+          })}
       </View>
 
-      {/* Control buttons */}
       <View style={styles.controls}>
         <TouchableOpacity
           style={[styles.button, styles.noButton]}
@@ -201,10 +205,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   refreshIcon: {
-    marginRight: 10,
+    marginRight: 8,
   },
   refreshText: {
-    color: '#ffffff',
+    color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: 'bold',
   }
 });

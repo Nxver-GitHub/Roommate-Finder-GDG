@@ -62,7 +62,7 @@ export function LifestyleStep() {
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
       <Controller
         control={control}
         name="cleanliness"

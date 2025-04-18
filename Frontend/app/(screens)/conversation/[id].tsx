@@ -719,13 +719,14 @@ export default function ConversationScreen() {
           contentContainerStyle={styles.messagesList}
           initialNumToRender={15} 
           maxToRenderPerBatch={10} 
-          windowSize={11} 
+          windowSize={11}
+          nestedScrollEnabled={true}
           onContentSizeChange={() => {
-               if (!loading) { /* ... */ }
-           }}
-           onLayout={() => {
-                if (!loading) { /* ... */ }
-           }}
+            if (!loading) { /* ... */ }
+          }}
+          onLayout={() => {
+            if (!loading) { /* ... */ }
+          }}
         /> 
 
         {/* Upload progress indicator */}

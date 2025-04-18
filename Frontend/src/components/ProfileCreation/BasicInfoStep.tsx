@@ -70,6 +70,7 @@ export function BasicInfoStep() {
         style={styles.container} 
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled={true}
       >
         <Controller
           control={control}

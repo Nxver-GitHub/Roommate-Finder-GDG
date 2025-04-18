@@ -45,6 +45,7 @@ export function FormSelect({ label, value, options, onSelect, error }: FormSelec
             <FlatList
               data={options}
               keyExtractor={(item) => item.value}
+              nestedScrollEnabled={true}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[
