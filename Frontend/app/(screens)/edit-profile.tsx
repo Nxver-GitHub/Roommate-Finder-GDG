@@ -20,41 +20,7 @@ import { arrayUnion, arrayRemove } from 'firebase/firestore'; // Import array ma
 import { updateProfile } from 'firebase/auth'; // Import from firebase/auth
 import { auth } from '../../src/firebase/config'; // Import auth instance
 import { updateUserAuthProfilePicture } from '../../src/firebase/auth';
-
-// --- UserProfileData interface (ensure it covers all fields) ---
-interface UserProfileData {
-  id?: string;
-  email?: string;
-  name?: string;
-  photoURL?: string | null; // Add or ensure this field exists for the main profile pic URL
-  basicInfo?: {
-    firstName?: string;
-    lastName?: string;
-    age?: number;
-    gender?: string;
-    occupation?: string;
-    bio?: string;
-  };
-  preferences?: {
-    budget?: { min?: number; max?: number };
-    moveInDate?: any; // Firestore Timestamp or Date
-    duration?: string;
-    location?: string; // Or a more complex type if needed
-    roomType?: string;
-  };
-  lifestyle?: {
-    cleanliness?: number;
-    noise?: number;
-    guestComfort?: number;
-    schedule?: string;
-    smoking?: boolean;
-    pets?: boolean;
-  };
-  photos?: string[];
-  isProfileComplete?: boolean; // Ensure this exists if used elsewhere
-  [key: string]: any;
-}
-
+import { UserProfileData } from '../../src/types/profile';
 
 // --- Combined Validation Schema for ALL fields ---
 const schema = yup.object().shape({
@@ -474,6 +440,7 @@ export default function EditProfileScreen() {
           <ScrollView 
             style={styles.scrollView} 
             contentContainerStyle={styles.scrollViewContent} 
+            nestedScrollEnabled={true}
             keyboardShouldPersistTaps="handled"
           >
 

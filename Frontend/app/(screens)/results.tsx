@@ -19,9 +19,10 @@ import {
   onSnapshot,
   doc,
   orderBy,
+  getDoc,
 } from 'firebase/firestore';
 import { db } from '../../src/firebase/config';
-import { getMatchedUserProfiles, deleteMatch } from '../../src/firebase/firestore';
+import { getMatchedUserProfiles, validateAndFixMatches } from '../../src/firebase/firestore';
 import { UserProfileData } from '../../src/types/profile';
 
 const PLACEHOLDER_IMAGE_URI = 'https://via.placeholder.com/100/374151/e5e7eb?text=No+Pic';
@@ -32,61 +33,102 @@ export default function ResultsScreen() {
   const [matches, setMatches] = useState<UserProfileData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const currentUser = getCurrentUser();
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    const currentUser = getCurrentUser();
+    let unsubscribe: (() => void) | null = null;
+    let isMounted = true;
 
-    if (!currentUser?.uid) {
-      console.log("Results: No current user found for listener.");
-      setError("You need to be logged in to see matches.");
-      setLoading(false);
-      return;
-    }
+    const setupListener = async () => {
+      if (!isMounted) return;
 
-    console.log(`Results: Setting up match listener for user ${currentUser.uid}`);
-    const matchesSubcollectionRef = collection(db, MATCHES_COLLECTION, currentUser.uid, 'userMatches');
-    const q = query(matchesSubcollectionRef, orderBy('matchedAt', 'desc'));
-
-    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
-      console.log(`Results listener: Received update with ${querySnapshot.size} match documents.`);
-      const matchIds: string[] = [];
-      querySnapshot.forEach((doc) => {
-        matchIds.push(doc.id);
-      });
-
-      console.log("Results listener: Match IDs found:", matchIds);
-
-      if (matchIds.length > 0) {
-        try {
-          const matchedProfiles = await getMatchedUserProfiles(matchIds);
-          console.log(`Results listener: Fetched ${matchedProfiles.length} profiles.`);
-          setMatches(matchedProfiles);
-          setError(null);
-        } catch (profileError) {
-          console.error("Results listener: Error fetching matched profiles:", profileError);
-          setError("Failed to load profile details for matches.");
-          setMatches([]);
-        }
-      } else {
-        console.log("Results listener: No match IDs found, clearing matches.");
+      if (!currentUser?.uid) {
+        console.log("Results: No current user found for listener.");
         setMatches([]);
+        setError(null);
+        setLoading(false);
+        return;
       }
-      setLoading(false);
-    }, (err) => {
-      console.error("Results listener: Error:", err);
-      setError("Failed to listen for matches. Please try again later.");
-      setLoading(false);
-      setMatches([]);
-    });
 
-    return () => {
-      console.log("Results: Unsubscribing match listener.");
-      unsubscribe();
+      setLoading(true);
+      setError(null);
+      const currentUserId = currentUser.uid;
+
+      try {
+        const fixedCount = await validateAndFixMatches(currentUserId);
+        if (isMounted && fixedCount > 0) {
+          console.log(`ResultsScreen: Fixed ${fixedCount} inconsistent matches.`);
+        }
+        if (!isMounted) return;
+
+        console.log(`Results: Setting up match listener for user ${currentUserId}`);
+        const matchesSubcollectionRef = collection(db, MATCHES_COLLECTION, currentUserId, 'userMatches');
+        const q = query(matchesSubcollectionRef, orderBy('matchedAt', 'desc'));
+
+        unsubscribe = onSnapshot(q, async (querySnapshot) => {
+          if (!isMounted || !getCurrentUser()?.uid) {
+            console.log("Results listener: Component unmounted or user logged out during snapshot update.");
+            return;
+          }
+          console.log(`Results listener: Received update with ${querySnapshot.size} match documents.`);
+          const matchIds: string[] = [];
+          querySnapshot.forEach((doc) => {
+            matchIds.push(doc.id);
+          });
+
+          if (matchIds.length > 0) {
+            try {
+              const matchedProfiles = await getMatchedUserProfiles(matchIds);
+              if (!isMounted) return;
+              console.log(`Results listener: Fetched ${matchedProfiles.length} profiles.`);
+              setMatches(matchedProfiles);
+              setError(null);
+            } catch (profileError) {
+              if (!isMounted) return;
+              console.error("Results listener: Error fetching matched profiles:", profileError);
+              setError("Failed to load profile details for matches.");
+              setMatches([]);
+            }
+          } else {
+            if (!isMounted) return;
+            console.log("Results listener: No match IDs found, clearing matches.");
+            setMatches([]);
+          }
+          setLoading(false);
+        }, (err) => {
+          if (!isMounted) return;
+          if (err.code === 'permission-denied') {
+            console.warn("Results listener: Permission denied. User likely logged out.");
+            setError(null);
+            setMatches([]);
+          } else {
+            console.error("Results listener: Error:", err);
+            setError("Failed to listen for matches.");
+          }
+          setLoading(false);
+          setMatches([]);
+        });
+
+      } catch (validationError) {
+        if (!isMounted) return;
+        console.error("ResultsScreen: Error validating matches:", validationError);
+        setError("Error checking match consistency.");
+        setLoading(false);
+      }
     };
 
-  }, []);
+    setupListener();
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) {
+        console.log("Results: Unsubscribing match listener on cleanup.");
+        unsubscribe();
+      } else {
+        console.log("Results: No active listener to unsubscribe on cleanup.");
+      }
+    };
+  }, [currentUser?.uid]);
 
   const handleMatchPress = (profile: UserProfileData) => {
     if (!profile.id) {
@@ -97,67 +139,21 @@ export default function ResultsScreen() {
     router.push(`/conversation/${profile.id}`);
   };
 
-  const handleDeleteMatch = (profile: UserProfileData) => {
-    if (!profile.id) {
-      Alert.alert("Error", "Cannot delete this match. Missing profile ID.");
-      return;
-    }
-    
-    Alert.alert(
-      "Delete Match",
-      `Are you sure you want to remove ${profile.basicInfo?.firstName || 'this user'} from your matches? This will also delete your conversation history.`,
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            const currentUser = getCurrentUser();
-            if (!currentUser?.uid) {
-              Alert.alert("Error", "You need to be logged in to delete matches.");
-              return;
-            }
-            
-            setLoading(true);
-            try {
-              const success = await deleteMatch(currentUser.uid, profile.id);
-              if (success) {
-                // The listener will automatically update the UI
-                console.log(`Match with ${profile.id} deleted successfully`);
-              } else {
-                Alert.alert("Error", "Failed to delete match. Please try again later.");
-              }
-            } catch (error) {
-              console.error("Error deleting match:", error);
-              Alert.alert("Error", "Something went wrong while deleting the match.");
-            } finally {
-              setLoading(false);
-            }
-          }
-        }
-      ]
-    );
-  };
-
   const renderMatchItem = ({ item }: { item: UserProfileData }) => {
     const displayName = `${item.basicInfo?.firstName || ''} ${item.basicInfo?.lastName || ''}`.trim() || 'Matched User';
-    const profileImageUrl = item.photoURL || (item.photos && item.photos.length > 0 ? item.photos[0] : PLACEHOLDER_IMAGE_URI);
+    const profileImageUrl = item.photoURL || PLACEHOLDER_IMAGE_URI;
     const matchOccupation = item.basicInfo?.occupation || 'Unknown Occupation';
 
     return (
       <TouchableOpacity
         style={styles.matchCard}
         onPress={() => handleMatchPress(item)}
-        onLongPress={() => handleDeleteMatch(item)}
       >
         <Image source={{ uri: profileImageUrl }} style={styles.profileImage} />
         <View style={styles.matchInfo}>
           <Text style={styles.name}>{displayName}</Text>
           <Text style={styles.occupation}>{matchOccupation}</Text>
-          <Text style={styles.messagePreview}>Tap to chat! Long press to delete match.</Text>
+          <Text style={styles.messagePreview}>Tap to chat!</Text>
         </View>
       </TouchableOpacity>
     );

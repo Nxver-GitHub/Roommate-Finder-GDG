@@ -1,6 +1,6 @@
     // Frontend/app/(auth)/index.tsx (Ultra-simple test)
     import React, { useState } from 'react';
-    import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, SafeAreaView } from 'react-native';
+    import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, SafeAreaView, Image } from 'react-native';
     import { Stack, useRouter } from 'expo-router';
     import { Ionicons } from '@expo/vector-icons';
     import { styled } from 'nativewind';
@@ -66,9 +66,14 @@
         <SafeAreaView style={styles.container}>
           <Stack.Screen options={{ title: 'Login', headerShown: false }} />
           <StyledView className="flex-1 justify-center items-center p-5 bg-gray-900">
-            <StyledText className="text-3xl font-bold mb-8 text-white">
-              Welcome Back!
-            </StyledText>
+            {/* Logo Image */}
+            <View style={styles.logoContainer}>
+              <Image 
+                source={require('../../assets/images/logo.png')} 
+                style={styles.logo} 
+                resizeMode="contain"
+              />
+            </View>
 
             {error && (
               <StyledText className="text-red-500 mb-4 text-center">{error}</StyledText>
@@ -76,7 +81,7 @@
 
             <StyledTextInput
               className="w-full h-12 bg-gray-800 rounded-lg px-4 mb-4 text-white border border-gray-700"
-              placeholder="School Email"
+              placeholder="UCSC Email"
               placeholderTextColor="#9CA3AF"
               value={email}
               onChangeText={setEmail}
@@ -142,6 +147,14 @@
       container: {
         flex: 1,
         backgroundColor: '#111827', // gray-900
+      },
+      logoContainer: {
+        alignItems: 'center',
+        marginBottom: 40,
+      },
+      logo: {
+        width: 200,
+        height: 200,
       },
       content: {
           flex: 1,

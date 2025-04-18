@@ -96,6 +96,7 @@ export function FormLocationInput({
         listViewDisplayed={false} // Initially hide the list view
         minLength={2} // Only search after 2 characters to reduce unnecessary API calls
         suppressDefaultStyles={false} // Keep default styles alongside our custom ones
+        nestedScrollEnabled={true}
       />
       {error && <Text style={styles.errorText}>{error}</Text>}
     </View>

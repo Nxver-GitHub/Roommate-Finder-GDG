@@ -80,7 +80,7 @@ export default function SignupScreen() {
       />
       <StyledTextInput
         className="w-full h-12 bg-gray-800 rounded-lg px-4 mb-4 text-white border border-gray-700"
-        placeholder="School Email (@ucsc.edu, @ucla.edu, etc.)"
+        placeholder="School Email (@ucsc.edu)"
         placeholderTextColor="#9CA3AF"
         value={email}
         onChangeText={setEmail}
