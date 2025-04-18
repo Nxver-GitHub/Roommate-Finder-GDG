@@ -21,7 +21,7 @@ import {
   orderBy,
 } from 'firebase/firestore';
 import { db } from '../../src/firebase/config';
-import { getMatchedUserProfiles } from '../../src/firebase/firestore';
+import { getMatchedUserProfiles, deleteMatch } from '../../src/firebase/firestore';
 import { UserProfileData } from '../../src/types/profile';
 
 const PLACEHOLDER_IMAGE_URI = 'https://via.placeholder.com/100/374151/e5e7eb?text=No+Pic';
@@ -97,21 +97,67 @@ export default function ResultsScreen() {
     router.push(`/conversation/${profile.id}`);
   };
 
+  const handleDeleteMatch = (profile: UserProfileData) => {
+    if (!profile.id) {
+      Alert.alert("Error", "Cannot delete this match. Missing profile ID.");
+      return;
+    }
+    
+    Alert.alert(
+      "Delete Match",
+      `Are you sure you want to remove ${profile.basicInfo?.firstName || 'this user'} from your matches? This will also delete your conversation history.`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            const currentUser = getCurrentUser();
+            if (!currentUser?.uid) {
+              Alert.alert("Error", "You need to be logged in to delete matches.");
+              return;
+            }
+            
+            setLoading(true);
+            try {
+              const success = await deleteMatch(currentUser.uid, profile.id);
+              if (success) {
+                // The listener will automatically update the UI
+                console.log(`Match with ${profile.id} deleted successfully`);
+              } else {
+                Alert.alert("Error", "Failed to delete match. Please try again later.");
+              }
+            } catch (error) {
+              console.error("Error deleting match:", error);
+              Alert.alert("Error", "Something went wrong while deleting the match.");
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderMatchItem = ({ item }: { item: UserProfileData }) => {
     const displayName = `${item.basicInfo?.firstName || ''} ${item.basicInfo?.lastName || ''}`.trim() || 'Matched User';
-    const profileImageUrl = item.photoURL || PLACEHOLDER_IMAGE_URI;
+    const profileImageUrl = item.photoURL || (item.photos && item.photos.length > 0 ? item.photos[0] : PLACEHOLDER_IMAGE_URI);
     const matchOccupation = item.basicInfo?.occupation || 'Unknown Occupation';
 
     return (
       <TouchableOpacity
         style={styles.matchCard}
         onPress={() => handleMatchPress(item)}
+        onLongPress={() => handleDeleteMatch(item)}
       >
         <Image source={{ uri: profileImageUrl }} style={styles.profileImage} />
         <View style={styles.matchInfo}>
           <Text style={styles.name}>{displayName}</Text>
           <Text style={styles.occupation}>{matchOccupation}</Text>
-          <Text style={styles.messagePreview}>Tap to chat!</Text>
+          <Text style={styles.messagePreview}>Tap to chat! Long press to delete match.</Text>
         </View>
       </TouchableOpacity>
     );

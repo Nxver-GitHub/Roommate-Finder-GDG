@@ -95,6 +95,7 @@ export function PreferencesStep() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 40 }}
+        nestedScrollEnabled={true}
       >
         <Text style={styles.title}>Your Preferences</Text>
 

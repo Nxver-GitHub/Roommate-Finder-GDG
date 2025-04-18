@@ -16,6 +16,22 @@ const SWIPES_COLLECTION = 'swipes';
 const MATCHES_COLLECTION = 'matches';
 const CONVERSATIONS_COLLECTION = 'conversations'; // New collection name
 const MESSAGES_SUBCOLLECTION = 'messages'; // New subcollection name
+const COMPATIBILITY_SCORES_COLLECTION = 'compatibilityScores';
+
+// Add these types for compatibility scores
+export interface CompatibilityScore {
+  userId1: string;
+  userId2: string;
+  score: number;
+  matchFactors: {
+    budgetMatch: number;
+    genderMatch: number;
+    roomTypeMatch: number;
+    lifestyleMatch: number;
+    locationMatch: number;
+  };
+  lastUpdated: Date | Timestamp;
+}
 
 // --- User Profile ---
 
@@ -40,6 +56,21 @@ export const setUserProfile = async (userId, profileData) => {
 
     await setDoc(userDocRef, dataToSet, { merge: true });
     console.log("User profile set/updated successfully for ID:", userId);
+    
+    // Add this: Update compatibility scores whenever profile is updated
+    if (dataToSet.isProfileComplete) {
+      console.log("Updating compatibility scores after profile change");
+      updateUserCompatibilityScores(userId)
+        .then(success => {
+          if (success) {
+            console.log("Successfully updated compatibility scores for user:", userId);
+          }
+        })
+        .catch(error => {
+          console.error("Failed to update compatibility scores:", error);
+        });
+    }
+    
   } catch (error) {
     console.error("Error setting user profile:", error);
     throw error;
@@ -92,10 +123,24 @@ export const recordSwipe = async (swiperId, swipedUserId, liked) => {
 
         if (otherUserSwipeSnap.exists() && otherUserSwipeSnap.data().liked) {
           console.log(`recordSwipe: Mutual like detected! ${swipedUserId} also liked ${swiperId}.`);
+          
           // Create match documents for both users
-          await createMatch(swiperId, swipedUserId);
-          console.log(`recordSwipe: createMatch called successfully for ${swiperId} and ${swipedUserId}`);
-          return { matched: true }; // Indicate a match occurred
+          try {
+            await createMatch(swiperId, swipedUserId);
+            console.log(`recordSwipe: createMatch called successfully for ${swiperId} and ${swipedUserId}`);
+            
+            // Get the matched user's profile to return
+            const matchedUserProfile = await getUserProfile(swipedUserId);
+            
+            return { 
+              matched: true,
+              matchedUserId: swipedUserId,
+              matchedUserProfile
+            }; // Indicate a match occurred and return the user's profile
+          } catch (matchCreationError) {
+            console.error("recordSwipe: Error creating match:", matchCreationError);
+            return { matched: false, error: "Failed to create match" };
+          }
         } else {
           if (!otherUserSwipeSnap.exists()) {
             console.log(`recordSwipe: No match yet. ${swipedUserId} has not swiped on ${swiperId}.`);
@@ -122,27 +167,25 @@ export const recordSwipe = async (swiperId, swipedUserId, liked) => {
   }
 };
 
-/** Creates match documents for both users */
-const createMatch = async (userId1, userId2) => {
-  const matchId = [userId1, userId2].sort().join('_'); // Consistent match ID
-  console.log(`createMatch: Attempting to create match documents for ${userId1} and ${userId2} (Match ID: ${matchId})`);
-  const matchDocRefUser1 = doc(db, MATCHES_COLLECTION, userId1, 'userMatches', userId2);
-  const matchDocRefUser2 = doc(db, MATCHES_COLLECTION, userId2, 'userMatches', userId1);
+/** Creates a match document for the user initiating the action */
+const createMatch = async (initiatingUserId, matchedUserId) => {
+  console.log(`createMatch: Attempting to create match document for initiator ${initiatingUserId} -> matched ${matchedUserId}`);
+  
+  // Only create the document for the user whose action triggered this check
+  const matchDocRefInitiator = doc(db, MATCHES_COLLECTION, initiatingUserId, 'userMatches', matchedUserId);
   const timestamp = serverTimestamp();
 
-  // Use a batch write for atomicity
-  const batch = writeBatch(db);
-  batch.set(matchDocRefUser1, { matchedAt: timestamp, otherUserId: userId2 });
-  batch.set(matchDocRefUser2, { matchedAt: timestamp, otherUserId: userId1 });
-
   try {
-    await batch.commit();
-    console.log(`createMatch: Batch commit successful for match ${matchId}`);
-    // Optional: Trigger notification or update UI state here if needed
+    // Set the document for the initiating user
+    await setDoc(matchDocRefInitiator, { matchedAt: timestamp, otherUserId: matchedUserId });
+    console.log(`createMatch: Match document created successfully for ${initiatingUserId}`);
+    
+    // We no longer try to write the other user's document here
+    
   } catch (error) {
-    console.error(`createMatch: Error committing batch for match ${matchId}:`, error);
+    console.error(`createMatch: Error creating match document for ${initiatingUserId}:`, error);
      if (error.code === 'permission-denied') {
-       console.error("createMatch: PERMISSION DENIED creating match documents. Verify Firestore rules allow writing to /matches/{userId}/userMatches/{otherUserId}");
+       console.error(`createMatch: PERMISSION DENIED creating match document. Verify Firestore rules allow writing to /matches/${initiatingUserId}/userMatches/${matchedUserId}`);
      }
     // Re-throw the error so the calling function knows it failed
     throw error;
@@ -170,31 +213,37 @@ export const discoverUsers = async (currentUserProfile, filters) => {
 // --- Updated Function to fetch discoverable users (Simplified for Prioritization) ---
 export const getDiscoverableUsers = async (
   currentUserId: string
-  // Removed filters parameter - it's handled client-side now
 ): Promise<UserProfileData[]> => {
   if (!currentUserId) {
     console.error("Cannot fetch discoverable users without currentUserId");
     return [];
   }
   try {
+    // First, get all match IDs for current user
+    const matchIds = await getMatchIds(currentUserId);
+    console.log(`Excluding ${matchIds.length} matched users from discoverable users`);
+    
     const usersRef = collection(db, USERS_COLLECTION);
     
     // Base query: complete profiles, not the current user
-    const q = query(
+    let q = query(
       usersRef,
       where('isProfileComplete', '==', true),
       where(documentId(), '!=', currentUserId) 
     );
-
-    console.log("Fetching ALL discoverable users (prioritization done client-side)...");
+    
     const querySnapshot = await getDocs(q);
     const users: UserProfileData[] = [];
+    
+    // Filter out matched users manually
     querySnapshot.forEach((doc) => {
-      users.push({ id: doc.id, ...doc.data() } as UserProfileData);
+      // Only include users that are not in the matchIds array
+      if (!matchIds.includes(doc.id)) {
+        users.push({ id: doc.id, ...doc.data() } as UserProfileData);
+      }
     });
     
-    console.log(`Fetched ${users.length} total discoverable users.`);
-    // Return the full list - sorting/prioritization happens in the frontend
+    console.log(`Fetched ${users.length} total discoverable users after excluding ${matchIds.length} matches.`);
     return users; 
   } catch (error) {
     console.error("Error fetching discoverable users:", error);
@@ -605,3 +654,355 @@ export interface MessageData {
   // Add other fields like 'readBy', etc. if needed
 }
 */
+
+/**
+ * Calculates compatibility score between two users based on their profiles
+ */
+export const calculateCompatibilityScore = async (
+  user1Id: string,
+  user2Id: string
+): Promise<CompatibilityScore | null> => {
+  try {
+    // Get both user profiles
+    const user1Profile = await getUserProfile(user1Id);
+    const user2Profile = await getUserProfile(user2Id);
+    
+    if (!user1Profile || !user2Profile) {
+      console.error("Cannot calculate score: One or both user profiles not found");
+      return null;
+    }
+    
+    // Calculate individual factor scores (0-100 scale)
+    
+    // 1. Budget match (100 if budget ranges overlap, 0 if not)
+    const budgetMatch = 
+      (user1Profile.preferences?.budget?.min <= user2Profile.preferences?.budget?.max && 
+       user1Profile.preferences?.budget?.max >= user2Profile.preferences?.budget?.min) ? 100 : 0;
+    
+    // 2. Gender match (100 if preferences align, 0 if not)
+    const genderMatch = 100; // Placeholder - you'll need to adjust based on your gender preference fields
+    
+    // 3. Room type match (100 if types align, 0 if they conflict)
+    const roomTypeMatch = 
+      (user1Profile.preferences?.roomType === user2Profile.preferences?.roomType ||
+       user1Profile.preferences?.roomType === 'either' || 
+       user2Profile.preferences?.roomType === 'either') ? 100 : 0;
+    
+    // 4. Lifestyle match (average of lifestyle factors on 0-100 scale)
+    const lifestyleFactors = [
+      // Cleanliness (100 if same level, scale down by 20 for each level difference)
+      100 - (Math.abs(user1Profile.lifestyle?.cleanliness - user2Profile.lifestyle?.cleanliness) * 20),
+      // Smoking (100 if same preference, 0 if different)
+      user1Profile.lifestyle?.smoking === user2Profile.lifestyle?.smoking ? 100 : 0,
+      // Pets (100 if same preference, 0 if different)
+      user1Profile.lifestyle?.pets === user2Profile.lifestyle?.pets ? 100 : 0
+    ];
+    
+    const lifestyleMatch = lifestyleFactors.reduce((sum, factor) => sum + factor, 0) / lifestyleFactors.length;
+    
+    // 5. Location match (100 if same location string, 0 if different)
+    const locationMatch = 
+      user1Profile.preferences?.location === user2Profile.preferences?.location ? 100 : 0;
+    
+    // Calculate overall weighted score (0-100)
+    const weights = {
+      budget: 0.3,
+      gender: 0.15,
+      roomType: 0.2,
+      lifestyle: 0.25,
+      location: 0.1
+    };
+    
+    const overallScore = 
+      (budgetMatch * weights.budget) +
+      (genderMatch * weights.gender) +
+      (roomTypeMatch * weights.roomType) +
+      (lifestyleMatch * weights.lifestyle) +
+      (locationMatch * weights.location);
+    
+    // Create score object
+    const compatibilityScore: CompatibilityScore = {
+      userId1: user1Id,
+      userId2: user2Id,
+      score: overallScore,
+      matchFactors: {
+        budgetMatch,
+        genderMatch,
+        roomTypeMatch,
+        lifestyleMatch,
+        locationMatch
+      },
+      lastUpdated: serverTimestamp()
+    };
+    
+    return compatibilityScore;
+  } catch (error) {
+    console.error("Error calculating compatibility score:", error);
+    return null;
+  }
+};
+
+/**
+ * Saves a compatibility score to Firestore
+ */
+export const saveCompatibilityScore = async (score: CompatibilityScore): Promise<boolean> => {
+  try {
+    // Create a consistent document ID based on user IDs (alphabetically sorted)
+    const userIds = [score.userId1, score.userId2].sort();
+    const scoreDocId = userIds.join('_');
+    
+    // Save to Firestore
+    const scoreDocRef = doc(db, COMPATIBILITY_SCORES_COLLECTION, scoreDocId);
+    await setDoc(scoreDocRef, score);
+    
+    console.log(`Saved compatibility score (${score.score.toFixed(1)}) between ${score.userId1} and ${score.userId2}`);
+    return true;
+  } catch (error) {
+    console.error("Error saving compatibility score:", error);
+    return false;
+  }
+};
+
+/**
+ * Get the compatibility score between two users
+ */
+export const getCompatibilityScore = async (
+  userId1: string, 
+  userId2: string
+): Promise<CompatibilityScore | null> => {
+  try {
+    // Create consistent document ID
+    const userIds = [userId1, userId2].sort();
+    const scoreDocId = userIds.join('_');
+    
+    // Get from Firestore
+    const scoreDocRef = doc(db, COMPATIBILITY_SCORES_COLLECTION, scoreDocId);
+    const scoreDoc = await getDoc(scoreDocRef);
+    
+    if (scoreDoc.exists()) {
+      return { ...scoreDoc.data() } as CompatibilityScore;
+    } else {
+      // If score doesn't exist yet, calculate it, save it, and return it
+      const newScore = await calculateCompatibilityScore(userId1, userId2);
+      if (newScore) {
+        await saveCompatibilityScore(newScore);
+        return newScore;
+      }
+      return null;
+    }
+  } catch (error) {
+    console.error("Error getting compatibility score:", error);
+    return null;
+  }
+};
+
+/**
+ * Get all discoverable users sorted by compatibility score
+ */
+export const getDiscoverableUsersWithScores = async (
+  currentUserId: string,
+  filters: SearchFilters
+): Promise<UserProfileData[]> => {
+  if (!currentUserId) {
+    console.error("Cannot fetch discoverable users without currentUserId");
+    return [];
+  }
+  
+  console.log("Getting discoverable users with scores for filters:", JSON.stringify(filters, null, 2));
+  
+  try {
+    // First, get all users excluding matches - reuse our updated function
+    const potentialMatches = await getDiscoverableUsers(currentUserId);
+    
+    // Get scores for each potential match
+    const scorePromises = potentialMatches.map(user => 
+      getCompatibilityScore(currentUserId, user.id)
+        .then(scoreData => ({
+          userId: user.id,
+          score: scoreData?.score || 50 // Default to 50 if no score
+        }))
+        .catch(err => {
+          console.error(`Error getting score for user ${user.id}:`, err);
+          return {
+            userId: user.id,
+            score: 50 // Default score on error
+          };
+        })
+    );
+    
+    const userScores = await Promise.all(scorePromises);
+    
+    // Apply client-side filtering based on the activeFilters
+    const filteredMatches = potentialMatches.filter(user => {
+      // Apply filters criteria here
+      let passesFilters = true;
+      
+      if (filters.genderPreference && filters.genderPreference !== 'Any') {
+        passesFilters = passesFilters && user.basicInfo?.gender === filters.genderPreference;
+      }
+      
+      // Apply room type filter if only one type is selected
+      const { private: lookingForPrivate, shared: lookingForShared, entirePlace: lookingForEntire } = filters.roomType;
+      if (lookingForPrivate && !lookingForShared && !lookingForEntire) {
+        passesFilters = passesFilters && user.preferences?.roomType === 'private';
+      } else if (!lookingForPrivate && lookingForShared && !lookingForEntire) {
+        passesFilters = passesFilters && user.preferences?.roomType === 'shared';
+      }
+      
+      // Apply budget filter
+      if (filters.budgetRange?.max) {
+        passesFilters = passesFilters && (user.preferences?.budget?.min <= filters.budgetRange.max);
+      }
+      
+      // Apply lifestyle filters
+      if (filters.lifestyle?.smoking !== null) {
+        passesFilters = passesFilters && user.lifestyle?.smoking === filters.lifestyle.smoking;
+      }
+      
+      return passesFilters;
+    });
+    
+    // Sort by compatibility score
+    const sortedMatches = filteredMatches.sort((a, b) => {
+      const scoreA = userScores.find(s => s.userId === a.id)?.score || 0;
+      const scoreB = userScores.find(s => s.userId === b.id)?.score || 0;
+      // Sort descending (highest scores first)
+      return scoreB - scoreA;
+    });
+    
+    // Attach scores to user objects for UI display
+    const matchesWithScores = sortedMatches.map(user => {
+      const userScore = userScores.find(s => s.userId === user.id);
+      return {
+        ...user,
+        compatibilityScore: userScore?.score || 0
+      };
+    });
+    
+    console.log(`Found ${matchesWithScores.length} compatible users after filtering and scoring`);
+    
+    return matchesWithScores;
+  } catch (error) {
+    console.error("Error fetching discoverable users with scores:", error);
+    return [];
+  }
+};
+
+/**
+ * Batch updates compatibility scores for a user
+ * This could be called when a user updates their profile
+ */
+export const updateUserCompatibilityScores = async (userId: string): Promise<boolean> => {
+  try {
+    // Get all users to calculate scores with
+    const usersRef = collection(db, USERS_COLLECTION);
+    const q = query(usersRef, 
+      where('isProfileComplete', '==', true),
+      where(documentId(), '!=', userId)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const batch = writeBatch(db);
+    const batchPromises: Promise<CompatibilityScore | null>[] = [];
+    
+    // Calculate scores for each user pair
+    querySnapshot.forEach(userDoc => {
+      const otherUserId = userDoc.id;
+      batchPromises.push(calculateCompatibilityScore(userId, otherUserId));
+    });
+    
+    // Wait for all calculations
+    const scores = await Promise.all(batchPromises);
+    
+    // Add all scores to batch
+    scores.forEach(score => {
+      if (score) {
+        const userIds = [score.userId1, score.userId2].sort();
+        const scoreDocId = userIds.join('_');
+        const scoreDocRef = doc(db, COMPATIBILITY_SCORES_COLLECTION, scoreDocId);
+        batch.set(scoreDocRef, score);
+      }
+    });
+    
+    // Commit the batch
+    await batch.commit();
+    console.log(`Updated compatibility scores for user ${userId} with ${scores.filter(Boolean).length} other users`);
+    
+    return true;
+  } catch (error) {
+    console.error("Error updating user compatibility scores:", error);
+    return false;
+  }
+};
+
+// Update the deleteMatch function
+export const deleteMatch = async (currentUserId: string, otherUserId: string): Promise<boolean> => {
+  if (!currentUserId || !otherUserId) {
+    console.error("Cannot delete match without both user IDs");
+    return false;
+  }
+  
+  const conversationId = generateConversationId(currentUserId, otherUserId);
+  
+  try {
+    console.log(`Attempting to delete match between ${currentUserId} and ${otherUserId}`);
+    
+    // Delete the current user's match document
+    const matchDoc1 = doc(db, MATCHES_COLLECTION, currentUserId, 'userMatches', otherUserId);
+    await deleteDoc(matchDoc1);
+    console.log(`Successfully deleted match document for current user`);
+    
+    try {
+      // Try to delete the other user's match document (might fail due to permissions)
+      const matchDoc2 = doc(db, MATCHES_COLLECTION, otherUserId, 'userMatches', currentUserId);
+      await deleteDoc(matchDoc2);
+      console.log(`Successfully deleted match document for other user`);
+    } catch (error) {
+      console.warn("Could not delete other user's match document. This may be expected:", error);
+      // Continue anyway - we at least removed it from the current user's matches
+    }
+    
+    try {
+      // Try to delete the conversation
+      const conversationRef = doc(db, CONVERSATIONS_COLLECTION, conversationId);
+      
+      // Check if conversation exists first
+      const conversationSnap = await getDoc(conversationRef);
+      if (conversationSnap.exists()) {
+        await deleteDoc(conversationRef);
+        console.log(`Successfully deleted conversation document`);
+      } else {
+        console.log(`Conversation document doesn't exist, skipping deletion`);
+      }
+    } catch (error) {
+      console.warn("Could not delete conversation:", error);
+    }
+    
+    try {
+      // Try to delete messages
+      const messagesRef = collection(db, CONVERSATIONS_COLLECTION, conversationId, MESSAGES_SUBCOLLECTION);
+      const messagesSnapshot = await getDocs(messagesRef);
+      
+      console.log(`Found ${messagesSnapshot.size} messages to delete`);
+      
+      // Delete each message individually
+      for (const doc of messagesSnapshot.docs) {
+        try {
+          await deleteDoc(doc.ref);
+        } catch (messageError) {
+          console.warn(`Could not delete message ${doc.id}:`, messageError);
+        }
+      }
+      
+      console.log(`Finished attempting to delete messages`);
+    } catch (error) {
+      console.warn("Could not delete messages:", error);
+    }
+    
+    console.log(`Match deletion process completed successfully`);
+    return true;
+  } catch (error) {
+    console.error("Error deleting match and conversation:", error);
+    return false;
+  }
+};

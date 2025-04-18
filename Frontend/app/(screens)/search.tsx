@@ -313,7 +313,12 @@ export default function SearchScreen() {
 
       <View style={styles.quickFiltersContainer}>
         <Text style={styles.sectionTitle}>Quick Filters</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickFiltersScroll}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          style={styles.quickFiltersScroll}
+          nestedScrollEnabled={true}
+        >
           {/* "All" Button */}
           <TouchableOpacity
              key="all"
@@ -341,7 +346,10 @@ export default function SearchScreen() {
 
       <View style={styles.savedFiltersContainer}>
         <Text style={styles.sectionTitle}>Saved Searches</Text>
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled={true}
+        >
           {mySavedFilters.map(filter => (
             <SavedFilterItem
               key={filter.id}

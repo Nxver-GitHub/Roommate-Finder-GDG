@@ -110,7 +110,7 @@ export function PhotosStep() {
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
       <Text style={styles.title}>Add Photos</Text>
       <Text style={styles.subtitle}>
         Add photos that clearly show you. This helps potential roommates get to know you better.
