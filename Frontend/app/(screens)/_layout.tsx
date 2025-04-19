@@ -7,6 +7,8 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { FilterProvider } from '../../src/contexts/FilterContext';
+import { COLORS } from '../../src/utils/theme';
+import { Platform, Text } from 'react-native';
 
 export default function TabLayout() {
   return (
@@ -15,20 +17,30 @@ export default function TabLayout() {
         screenOptions={{
           headerShown: false,
           tabBarStyle: {
-            backgroundColor: '#121212',
-            borderTopColor: '#333',
+            backgroundColor: COLORS.background.default,
+            borderTopColor: COLORS.border.default,
             borderTopWidth: 1,
+            height: Platform.OS === 'ios' ? 85 : 60,
+            paddingBottom: Platform.OS === 'ios' ? 25 : 10,
           },
-          tabBarActiveTintColor: '#0891b2',
+          tabBarActiveTintColor: COLORS.secondary,
           tabBarInactiveTintColor: '#888',
+          tabBarShowLabel: true,
+          tabBarLabelStyle: {
+            fontSize: 12,
+            color: '#FFFFFF',
+          },
         }}
       >
-        {/* Visible Tabs matching the screenshot */}
         <Tabs.Screen
           name="index"
           options={{
-            title: 'Discover',
             tabBarIcon: ({ color }) => <Ionicons name="compass" size={24} color={color} />,
+            tabBarLabel: ({ focused, color }) => (
+              <Text style={{ color: '#FFFFFF', fontSize: 12 }}>
+                Discover
+              </Text>
+            ),
           }}
         />
         <Tabs.Screen
@@ -62,20 +74,16 @@ export default function TabLayout() {
 
         {/* Hidden Screens - Ensure these are explicitly hidden */}
         <Tabs.Screen
-          name="matches"
-          options={{ href: null }}
-        />
-        <Tabs.Screen
           name="edit-profile"
-          options={{ href: null }}
-        />
-        <Tabs.Screen
-          name="conversation/[id]"
-          options={{ href: null }}
+          options={{
+            href: null,
+          }}
         />
         <Tabs.Screen
           name="conversation"
-          options={{ href: null }}
+          options={{
+            href: null,
+          }}
         />
       </Tabs>
     </FilterProvider>

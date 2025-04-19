@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, Platform, KeyboardAvoidingView, Switch } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, Platform, KeyboardAvoidingView, Switch, Image, Dimensions } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { ChevronLeft, Save } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import { getCurrentUser } from '../../src/firebase/auth';
 import { getUserProfile, setUserProfile } from '../../src/firebase/firestore';
 import { useForm, Controller } from 'react-hook-form';
@@ -21,6 +23,7 @@ import { updateProfile } from 'firebase/auth'; // Import from firebase/auth
 import { auth } from '../../src/firebase/config'; // Import auth instance
 import { updateUserAuthProfilePicture } from '../../src/firebase/auth';
 import { UserProfileData } from '../../src/types/profile';
+import { COLORS, SPACING, BORDER_RADIUS, SHADOWS, TYPOGRAPHY } from '../../src/utils/theme';
 
 // --- Combined Validation Schema for ALL fields ---
 const schema = yup.object().shape({
@@ -386,221 +389,575 @@ export default function EditProfileScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#38bdf8" />
-        <Text style={styles.loadingText}>Loading Profile...</Text>
+        <Animated.View entering={ZoomIn.springify().delay(100)}>
+          <LinearGradient
+            colors={[COLORS.primary, 'rgba(39, 64, 117, 0.9)']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 1}}
+            style={styles.loadingCard}
+          >
+            <ActivityIndicator size="large" color={COLORS.secondary} />
+            <Text style={styles.loadingText}>Loading your profile...</Text>
+          </LinearGradient>
+        </Animated.View>
       </SafeAreaView>
     );
   }
-  // If loading is finished but profile is still null (due to fetch error handled in useEffect)
+  
   if (!profile) {
-     return (
-        <SafeAreaView style={styles.errorContainer}>
-           <Text style={styles.errorTitle}>Failed to load profile data.</Text>
-           <Text style={styles.errorMessage}>Please check your connection and try again.</Text>
-           <TouchableOpacity
-             onPress={() => router.back()} // Provide a way back
-             style={styles.goBackButton}
-           >
-             <Text style={styles.goBackButtonText}>Go Back</Text>
-           </TouchableOpacity>
-        </SafeAreaView>
-     );
+    return (
+      <SafeAreaView style={styles.errorContainer}>
+        <Animated.View entering={FadeInDown.springify().delay(100)} style={styles.errorCard}>
+          <LinearGradient
+            colors={['rgba(255, 68, 68, 0.9)', 'rgba(200, 30, 30, 0.8)']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 1}}
+            style={styles.errorGradient}
+          >
+            <Text style={styles.errorTitle}>Failed to load profile data</Text>
+            <Text style={styles.errorMessage}>Please check your connection and try again.</Text>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.goBackButton}
+            >
+              <LinearGradient
+                colors={[COLORS.secondary, '#E5B93C']}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+                style={styles.buttonGradient}
+              >
+                <Text style={styles.goBackButtonText}>Go Back</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </LinearGradient>
+        </Animated.View>
+      </SafeAreaView>
+    );
   }
 
   // --- Main Render ---
   return (
     <SafeAreaView style={styles.container}>
-       <Stack.Screen
-          options={{
-             headerShown: true,
-             headerStyle: { backgroundColor: '#1f2937' }, // Tailwind gray-800
-             headerTintColor: '#e5e7eb', // Tailwind gray-200
-             headerTitle: 'Edit Profile',
-             headerTitleStyle: { fontWeight: 'bold' },
-             headerLeft: () => (
-                <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-                   <ChevronLeft size={26} color="#e5e7eb" />
-                </TouchableOpacity>
-             ),
-             headerRight: () => (
-                <TouchableOpacity onPress={handleSubmit(handleSaveChanges)} disabled={saving || !isAnythingDirty} style={styles.headerButton}>
-                   {saving
-                      ? <ActivityIndicator color="#e5e7eb" size="small"/>
-                      : <Save size={24} color={isAnythingDirty ? "#38bdf8" : "#6b7280"} />
-                   }
-                </TouchableOpacity>
-             )
-          }}
-       />
-       <KeyboardAvoidingView
-         style={{ flex: 1 }}
-         behavior={Platform.OS === "ios" ? "padding" : "height"}
-         keyboardVerticalOffset={Platform.OS === "ios" ? 70 : 0} // Adjusted offset slightly
-       >
-          <ScrollView 
-            style={styles.scrollView} 
-            contentContainerStyle={styles.scrollViewContent} 
-            nestedScrollEnabled={true}
-            keyboardShouldPersistTaps="handled"
-          >
-
-            {/* --- NEW Photo Gallery Section --- */}
-            <View style={styles.sectionContainer}>
-                <ProfilePhotoGallery
-                  photos={photos}
-                  profilePicUrl={profilePicUrl} // Pass current selection
-                  onAddPhoto={handleAddPhoto}
-                  onRemovePhoto={handleRemovePhoto}
-                  onSelectAsProfile={handleSelectAsProfilePic} // Pass selection handler
-                  uploading={isUploadingPhoto}
-                  maxPhotos={6} // Example limit
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          headerStyle: { 
+            backgroundColor: 'transparent',
+            elevation: 0,
+            shadowOpacity: 0,
+          },
+          headerTintColor: COLORS.text.primary,
+          headerTitle: () => (
+            <Animated.View 
+              entering={FadeInDown.duration(600).delay(200)}
+              style={styles.headerTitleContainer}
+            >
+              <Text style={styles.headerTitle}>Edit Profile</Text>
+            </Animated.View>
+          ),
+          headerLeft: () => (
+            <TouchableOpacity 
+              onPress={() => router.back()} 
+              style={styles.headerButton}
+            >
+              <ChevronLeft size={26} color={COLORS.text.primary} />
+            </TouchableOpacity>
+          ),
+          headerRight: () => (
+            <TouchableOpacity 
+              onPress={handleSubmit(handleSaveChanges)} 
+              disabled={saving || !isAnythingDirty} 
+              style={[
+                styles.headerButton,
+                !isAnythingDirty && styles.headerButtonDisabled
+              ]}
+            >
+              {saving ? (
+                <ActivityIndicator color={COLORS.text.primary} size="small"/>
+              ) : (
+                <Save 
+                  size={24} 
+                  color={isAnythingDirty ? COLORS.secondary : COLORS.text.secondary} 
                 />
-            </View>
-
-            {/* --- Basic Info Section --- */}
-            <View style={styles.sectionContainer}>
-              <Text style={styles.sectionHeader}>Basic Info</Text>
-              <Controller control={control} name="firstName" render={({ field: { onChange, onBlur, value } }) => ( <FormInput label="First Name" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.firstName?.message} placeholder="Enter first name" /> )}/>
-              <Controller control={control} name="lastName" render={({ field: { onChange, onBlur, value } }) => ( <FormInput label="Last Name" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.lastName?.message} placeholder="Enter last name" /> )}/>
-              <Controller control={control} name="age" render={({ field: { onChange, onBlur, value } }) => ( <FormInput label="Age" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.age?.message} keyboardType="numeric" placeholder="e.g., 25" /> )}/>
-              <Controller control={control} name="gender" render={({ field: { onChange, value } }) => ( <FormSelect label="Gender" value={value} options={genderOptions} onSelect={onChange} error={errors.gender?.message} /> )}/>
-              <Controller control={control} name="occupation" render={({ field: { onChange, onBlur, value } }) => ( <FormInput label="Occupation" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.occupation?.message} placeholder="e.g., Student, Engineer" /> )}/>
-              <Controller control={control} name="bio" render={({ field: { onChange, onBlur, value } }) => ( <FormInput label="Bio" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.bio?.message} multiline numberOfLines={4} textAlignVertical="top" inputStyle={styles.bioInput} placeholder="Tell potential roommates about yourself..." /> )}/>
-            </View>
-
-             {/* --- Preferences Section --- */}
-            <View style={styles.sectionContainer}>
-                <Text style={styles.sectionHeader}>Preferences</Text>
-                <Controller control={control} name="budgetMin" render={({ field: { onChange, onBlur, value } }) => ( <FormInput label="Min Budget ($/month)" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.budgetMin?.message ? String(errors.budgetMin.message) : undefined} keyboardType="numeric" placeholder="e.g., 500"/> )}/>
-                <Controller control={control} name="budgetMax" render={({ field: { onChange, onBlur, value } }) => ( <FormInput label="Max Budget ($/month)" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.budgetMax?.message?.replace('budgetMin', budgetMinValue || 'min')} keyboardType="numeric" placeholder="e.g., 1500"/> )}/>
-                <Controller control={control} name="moveInDate" render={({ field: { onChange, value } }) => ( <FormDatePicker label="Desired Move-in Date" value={value} onChange={onChange} error={errors.moveInDate?.message} minimumDate={new Date()} /> )}/>
-                <Controller control={control} name="duration" render={({ field: { onChange, value } }) => ( <FormSelect label="Lease Duration" value={value} options={durationOptions} onSelect={onChange} error={errors.duration?.message} /> )}/>
-                <Controller control={control} name="location" render={({ field: { onChange, value } }) => { const handleLocationSelect = (locationData: LocationData) => { console.log("Location selected:", locationData); onChange(locationData.description); }; return (<FormLocationInput label="Preferred Location" onLocationSelect={handleLocationSelect} initialValue={typeof value === 'string' ? value : ''} error={errors.location?.message} placeholder="Search for city or neighborhood" />); }}/>
-                <Controller control={control} name="roomType" render={({ field: { onChange, value } }) => ( <FormSelect label="Room Type Preference" value={value} options={roomTypeOptions} onSelect={onChange} error={errors.roomType?.message} /> )}/>
-            </View>
-
-            {/* --- Lifestyle Section --- */}
-            <View style={styles.sectionContainer}>
-                <Text style={styles.sectionHeader}>Lifestyle</Text>
-                <Controller control={control} name="cleanliness" render={({ field: { onChange, value } }) => ( <FormRating label="Cleanliness Preference" value={value} onChange={onChange} lowLabel="Relaxed" highLabel="Very tidy" error={errors.cleanliness?.message as string | undefined}/> )}/>
-                <Controller control={control} name="noise" render={({ field: { onChange, value } }) => ( <FormRating label="Noise Level Preference" value={value} onChange={onChange} lowLabel="Quiet" highLabel="Lively" error={errors.noise?.message as string | undefined}/> )}/>
-                <Controller control={control} name="guestComfort" render={({ field: { onChange, value } }) => ( <FormRating label="Comfort with Guests" value={value} onChange={onChange} lowLabel="Rarely" highLabel="Often" error={errors.guestComfort?.message as string | undefined}/> )}/>
-                <Controller control={control} name="schedule" render={({ field: { onChange, value } }) => ( <FormSelect label="Typical Schedule" value={value} options={scheduleOptions} onSelect={onChange} error={errors.schedule?.message} /> )}/>
-                <View style={styles.switchRow}>
-                    <Text style={styles.switchLabel}>Smoking Allowed?</Text>
-                    <Controller control={control} name="smoking" render={({ field: { onChange, value } }) => ( <Switch value={value ?? false} onValueChange={onChange} trackColor={{ false: '#767577', true: '#81b0ff' }} thumbColor={value ? '#38bdf8' : '#f4f3f4'} ios_backgroundColor="#3e3e3e" /> )}/>
+              )}
+            </TouchableOpacity>
+          ),
+          headerBackground: () => (
+            <LinearGradient
+              colors={['rgba(67, 113, 203, 0.95)', 'rgba(27, 41, 80, 0.9)']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={{ flex: 1 }}
+            />
+          ),
+        }}
+      />
+      
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 70 : 0}
+      >
+        <ScrollView 
+          style={styles.scrollView} 
+          contentContainerStyle={styles.scrollViewContent}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled={true}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* --- Photo Gallery Section --- */}
+          <Animated.View 
+            entering={FadeInDown.duration(600).delay(100)}
+            style={styles.sectionContainer}
+          >
+            <View style={styles.sectionGlowBorder}>
+              <LinearGradient
+                colors={['rgba(240, 210, 100, 0.7)', 'rgba(67, 113, 203, 0.7)']}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+                style={styles.gradientBorder}
+              >
+                <View style={styles.sectionContent}>
+                  <ProfilePhotoGallery
+                    photos={photos}
+                    profilePicUrl={profilePicUrl}
+                    onAddPhoto={handleAddPhoto}
+                    onRemovePhoto={handleRemovePhoto}
+                    onSelectAsProfile={handleSelectAsProfilePic}
+                    uploading={isUploadingPhoto}
+                    maxPhotos={6}
+                  />
                 </View>
-                {errors.smoking && <Text style={styles.errorText}>{errors.smoking.message}</Text>}
-                <View style={styles.switchRow}>
-                    <Text style={styles.switchLabel}>Pets Allowed?</Text>
-                    <Controller control={control} name="pets" render={({ field: { onChange, value } }) => ( <Switch value={value ?? false} onValueChange={onChange} trackColor={{ false: '#767577', true: '#81b0ff' }} thumbColor={value ? '#38bdf8' : '#f4f3f4'} ios_backgroundColor="#3e3e3e" /> )}/>
-                </View>
-                {errors.pets && <Text style={styles.errorText}>{errors.pets.message}</Text>}
+              </LinearGradient>
             </View>
+          </Animated.View>
 
-            {/* Add some padding at the bottom */}
-            <View style={{ height: 40 }} />
+          {/* --- Basic Info Section --- */}
+          <Animated.View 
+            entering={FadeInDown.duration(600).delay(200)}
+            style={styles.sectionContainer}
+          >
+            <View style={styles.sectionGlowBorder}>
+              <LinearGradient
+                colors={['rgba(67, 113, 203, 0.7)', 'rgba(27, 94, 65, 0.7)']}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+                style={styles.gradientBorder}
+              >
+                <View style={styles.sectionContent}>
+                  <View style={styles.sectionHeaderContainer}>
+                    <Text style={styles.sectionHeader}>Basic Info</Text>
+                    <View style={styles.sectionDivider} />
+                  </View>
+                  
+                  <Controller control={control} name="firstName" render={({ field: { onChange, onBlur, value } }) => ( 
+                    <FormInput label="First Name" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.firstName?.message} placeholder="Enter first name" /> 
+                  )}/>
+                  <Controller control={control} name="lastName" render={({ field: { onChange, onBlur, value } }) => ( 
+                    <FormInput label="Last Name" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.lastName?.message} placeholder="Enter last name" /> 
+                  )}/>
+                  <Controller control={control} name="age" render={({ field: { onChange, onBlur, value } }) => ( 
+                    <FormInput label="Age" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.age?.message} keyboardType="numeric" placeholder="e.g., 25" /> 
+                  )}/>
+                  <Controller control={control} name="gender" render={({ field: { onChange, value } }) => ( 
+                    <FormSelect label="Gender" value={value} options={genderOptions} onSelect={onChange} error={errors.gender?.message} /> 
+                  )}/>
+                  <Controller control={control} name="occupation" render={({ field: { onChange, onBlur, value } }) => ( 
+                    <FormInput label="Occupation" value={value} onChangeText={onChange} onBlur={onBlur} error={errors.occupation?.message} placeholder="e.g., Student, Engineer" /> 
+                  )}/>
+                  <Controller control={control} name="bio" render={({ field: { onChange, onBlur, value } }) => ( 
+                    <FormInput 
+                      label="Bio" 
+                      value={value} 
+                      onChangeText={onChange} 
+                      onBlur={onBlur} 
+                      error={errors.bio?.message} 
+                      multiline 
+                      numberOfLines={4} 
+                      textAlignVertical="top" 
+                      inputStyle={styles.bioInput} 
+                      placeholder="Tell potential roommates about yourself..." 
+                    /> 
+                  )}/>
+                </View>
+              </LinearGradient>
+            </View>
+          </Animated.View>
 
-          </ScrollView>
-       </KeyboardAvoidingView>
+          {/* --- Preferences Section --- */}
+          <Animated.View 
+            entering={FadeInDown.duration(600).delay(300)}
+            style={styles.sectionContainer}
+          >
+            <View style={styles.sectionGlowBorder}>
+              <LinearGradient
+                colors={['rgba(27, 94, 65, 0.7)', 'rgba(240, 210, 100, 0.7)']}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+                style={styles.gradientBorder}
+              >
+                <View style={styles.sectionContent}>
+                  <View style={styles.sectionHeaderContainer}>
+                    <Text style={styles.sectionHeader}>Preferences</Text>
+                    <View style={styles.sectionDivider} />
+                  </View>
+                  
+                  <Controller control={control} name="budgetMin" render={({ field: { onChange, onBlur, value } }) => ( 
+                    <FormInput 
+                      label="Min Budget ($/month)" 
+                      value={value} 
+                      onChangeText={onChange} 
+                      onBlur={onBlur} 
+                      error={errors.budgetMin?.message ? String(errors.budgetMin.message) : undefined} 
+                      keyboardType="numeric" 
+                      placeholder="e.g., 500"
+                    /> 
+                  )}/>
+                  <Controller control={control} name="budgetMax" render={({ field: { onChange, onBlur, value } }) => ( 
+                    <FormInput 
+                      label="Max Budget ($/month)" 
+                      value={value} 
+                      onChangeText={onChange} 
+                      onBlur={onBlur} 
+                      error={errors.budgetMax?.message?.replace('budgetMin', budgetMinValue || 'min')} 
+                      keyboardType="numeric" 
+                      placeholder="e.g., 1500"
+                    /> 
+                  )}/>
+                  <Controller control={control} name="moveInDate" render={({ field: { onChange, value } }) => ( 
+                    <FormDatePicker 
+                      label="Desired Move-in Date" 
+                      value={value} 
+                      onChange={onChange} 
+                      error={errors.moveInDate?.message} 
+                      minimumDate={new Date()} 
+                    /> 
+                  )}/>
+                  <Controller control={control} name="duration" render={({ field: { onChange, value } }) => ( 
+                    <FormSelect 
+                      label="Lease Duration" 
+                      value={value} 
+                      options={durationOptions} 
+                      onSelect={onChange} 
+                      error={errors.duration?.message} 
+                    /> 
+                  )}/>
+                  <Controller control={control} name="location" render={({ field: { onChange, value } }) => { 
+                    const handleLocationSelect = (locationData: LocationData) => { 
+                      console.log("Location selected:", locationData); 
+                      onChange(locationData.description); 
+                    }; 
+                    return (
+                      <FormLocationInput 
+                        label="Preferred Location" 
+                        onLocationSelect={handleLocationSelect} 
+                        initialValue={typeof value === 'string' ? value : ''} 
+                        error={errors.location?.message} 
+                        placeholder="Search for city or neighborhood" 
+                      />
+                    ); 
+                  }}/>
+                  <Controller control={control} name="roomType" render={({ field: { onChange, value } }) => ( 
+                    <FormSelect 
+                      label="Room Type Preference" 
+                      value={value} 
+                      options={roomTypeOptions} 
+                      onSelect={onChange} 
+                      error={errors.roomType?.message} 
+                    /> 
+                  )}/>
+                </View>
+              </LinearGradient>
+            </View>
+          </Animated.View>
+
+          {/* --- Lifestyle Section --- */}
+          <Animated.View 
+            entering={FadeInDown.duration(600).delay(400)}
+            style={styles.sectionContainer}
+          >
+            <View style={styles.sectionGlowBorder}>
+              <LinearGradient
+                colors={['rgba(240, 210, 100, 0.7)', 'rgba(67, 113, 203, 0.7)']}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+                style={styles.gradientBorder}
+              >
+                <View style={styles.sectionContent}>
+                  <View style={styles.sectionHeaderContainer}>
+                    <Text style={styles.sectionHeader}>Lifestyle</Text>
+                    <View style={styles.sectionDivider} />
+                  </View>
+                  
+                  <Controller control={control} name="cleanliness" render={({ field: { onChange, value } }) => ( 
+                    <FormRating 
+                      label="Cleanliness Preference" 
+                      value={value} 
+                      onChange={onChange} 
+                      lowLabel="Relaxed" 
+                      highLabel="Very tidy" 
+                      error={errors.cleanliness?.message as string | undefined}
+                    /> 
+                  )}/>
+                  <Controller control={control} name="noise" render={({ field: { onChange, value } }) => ( 
+                    <FormRating 
+                      label="Noise Level Preference" 
+                      value={value} 
+                      onChange={onChange} 
+                      lowLabel="Quiet" 
+                      highLabel="Lively" 
+                      error={errors.noise?.message as string | undefined}
+                    /> 
+                  )}/>
+                  <Controller control={control} name="guestComfort" render={({ field: { onChange, value } }) => ( 
+                    <FormRating 
+                      label="Comfort with Guests" 
+                      value={value} 
+                      onChange={onChange} 
+                      lowLabel="Rarely" 
+                      highLabel="Often" 
+                      error={errors.guestComfort?.message as string | undefined}
+                    /> 
+                  )}/>
+                  <Controller control={control} name="schedule" render={({ field: { onChange, value } }) => ( 
+                    <FormSelect 
+                      label="Typical Schedule" 
+                      value={value} 
+                      options={scheduleOptions} 
+                      onSelect={onChange} 
+                      error={errors.schedule?.message} 
+                    /> 
+                  )}/>
+                  
+                  <LinearGradient
+                    colors={['rgba(31, 41, 55, 0.6)', 'rgba(31, 41, 55, 0.3)']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 1}}
+                    style={styles.switchContainer}
+                  >
+                    <View style={styles.switchRow}>
+                      <Text style={styles.switchLabel}>Smoking Allowed?</Text>
+                      <Controller control={control} name="smoking" render={({ field: { onChange, value } }) => ( 
+                        <Switch 
+                          value={value ?? false} 
+                          onValueChange={onChange} 
+                          trackColor={{ false: '#555', true: COLORS.primary }} 
+                          thumbColor={value ? COLORS.secondary : '#f4f3f4'} 
+                          ios_backgroundColor="#3e3e3e" 
+                        /> 
+                      )}/>
+                    </View>
+                    {errors.smoking && <Text style={styles.errorText}>{errors.smoking.message}</Text>}
+                  </LinearGradient>
+                  
+                  <LinearGradient
+                    colors={['rgba(31, 41, 55, 0.6)', 'rgba(31, 41, 55, 0.3)']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 1}}
+                    style={styles.switchContainer}
+                  >
+                    <View style={styles.switchRow}>
+                      <Text style={styles.switchLabel}>Pets Allowed?</Text>
+                      <Controller control={control} name="pets" render={({ field: { onChange, value } }) => ( 
+                        <Switch 
+                          value={value ?? false} 
+                          onValueChange={onChange} 
+                          trackColor={{ false: '#555', true: COLORS.primary }} 
+                          thumbColor={value ? COLORS.secondary : '#f4f3f4'} 
+                          ios_backgroundColor="#3e3e3e" 
+                        /> 
+                      )}/>
+                    </View>
+                    {errors.pets && <Text style={styles.errorText}>{errors.pets.message}</Text>}
+                  </LinearGradient>
+                </View>
+              </LinearGradient>
+            </View>
+          </Animated.View>
+
+          {/* Add some padding at the bottom */}
+          <View style={{ height: 60 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-// --- Styles ---
+// --- Enhanced Styles ---
+const { width } = Dimensions.get('window');
 const styles = StyleSheet.create({
-   container: {
-     flex: 1,
-     backgroundColor: '#111827', // dark background (gray-900)
-   },
-   loadingContainer: {
-     flex: 1,
-     backgroundColor: '#111827',
-     justifyContent: 'center',
-     alignItems: 'center',
-   },
-   loadingText: {
-     color: '#9ca3af', // gray-400
-     marginTop: 8,
-   },
-   errorContainer: {
-     flex: 1,
-     backgroundColor: '#111827',
-     justifyContent: 'center',
-     alignItems: 'center',
-     padding: 20,
-   },
-   errorTitle: {
-     color: '#f87171', // red-400
-     fontSize: 18,
-     textAlign: 'center',
-     marginBottom: 16,
-   },
-   errorMessage: {
-     color: '#9ca3af', // gray-400
-     textAlign: 'center',
-     marginBottom: 24,
-   },
-   goBackButton: {
-     backgroundColor: '#0284c7', // sky-600
-     paddingHorizontal: 24,
-     paddingVertical: 8,
-     borderRadius: 6,
-   },
-   goBackButtonText: {
-     color: '#fff',
-     fontWeight: '600',
-   },
-   headerButton: {
-     marginHorizontal: 12,
-     padding: 4,
-   },
-   scrollView: {
-     padding: 16,
-   },
-   scrollViewContent: {
-     gap: 16,
-   },
-   sectionContainer: {
-     backgroundColor: '#1f2937', // gray-800
-     padding: 16,
-     borderRadius: 8,
-     shadowColor: '#000',
-     shadowOffset: { width: 0, height: 2 },
-     shadowOpacity: 0.1,
-     shadowRadius: 3,
-     elevation: 2,
-   },
-   sectionHeader: {
-      fontSize: 18,
-      fontWeight: '600',
-      color: '#e5e7eb', // Gray-200
-      marginBottom: 16,
-      paddingBottom: 6,
-      borderBottomColor: '#4b5563', // Gray-600
-      borderBottomWidth: 1,
-   },
-   bioInput: {
-     minHeight: 100,
-     paddingTop: 8,
-     paddingBottom: 8,
-   },
-   switchRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingVertical: 10,
-      marginTop: 12,
-   },
-   switchLabel: {
-      color: '#d1d5db', // Gray-300
-      fontSize: 16,
-   },
-   errorText: {
-     color: '#fca5a5', // Tailwind red-300
-     fontSize: 13,
-     marginTop: 4,
-     marginBottom: 6,
-   },
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background.default,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollViewContent: {
+    padding: SPACING.md,
+    paddingTop: SPACING.lg,
+  },
+  sectionContainer: {
+    marginBottom: SPACING.lg,
+  },
+  sectionGlowBorder: {
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'hidden',
+    ...SHADOWS.lg,
+  },
+  gradientBorder: {
+    padding: 2, // Border thickness
+  },
+  sectionContent: {
+    backgroundColor: COLORS.background.elevated,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+  },
+  sectionHeaderContainer: {
+    marginBottom: SPACING.md,
+    alignItems: 'center',
+  },
+  sectionHeader: {
+    fontSize: TYPOGRAPHY.fontSize.xl,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.sm,
+  },
+  sectionDivider: {
+    height: 2,
+    width: width * 0.4,
+    backgroundColor: COLORS.primary,
+    borderRadius: BORDER_RADIUS.full,
+    marginBottom: SPACING.sm,
+  },
+  headerTitleContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize['2xl'],
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    textAlign: 'center',
+    // Add a subtle glow effect to the text
+    textShadowColor: 'rgba(240, 210, 100, 0.5)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 10,
+  },
+  headerButton: {
+    marginHorizontal: SPACING.md,
+    padding: SPACING.sm,
+    borderRadius: BORDER_RADIUS.full,
+    // Add glow effect to header buttons
+    shadowColor: COLORS.secondary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+    elevation: 5,
+  },
+  headerButtonDisabled: {
+    opacity: 0.5,
+    // No glow for disabled buttons
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: COLORS.background.default,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SPACING.xl,
+    borderRadius: BORDER_RADIUS.lg,
+    width: width * 0.85,
+    maxWidth: 350,
+    ...SHADOWS.lg,
+  },
+  loadingText: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    marginTop: SPACING.lg,
+    fontWeight: TYPOGRAPHY.fontWeight.medium,
+  },
+  errorContainer: {
+    flex: 1,
+    backgroundColor: COLORS.background.default,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.lg,
+  },
+  errorCard: {
+    width: width * 0.85,
+    maxWidth: 350,
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'hidden',
+    ...SHADOWS.lg,
+  },
+  errorGradient: {
+    padding: SPACING.xl,
+    alignItems: 'center',
+  },
+  errorTitle: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.xl,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    marginBottom: SPACING.md,
+    textAlign: 'center',
+  },
+  errorMessage: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    textAlign: 'center',
+    marginBottom: SPACING.xl,
+    opacity: 0.9,
+  },
+  goBackButton: {
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+    width: '80%',
+    ...SHADOWS.md,
+  },
+  buttonGradient: {
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.xl,
+    alignItems: 'center',
+  },
+  goBackButtonText: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+  },
+  bioInput: {
+    minHeight: 120,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.sm,
+    textAlignVertical: 'top',
+  },
+  switchContainer: {
+    borderRadius: BORDER_RADIUS.md,
+    marginVertical: SPACING.sm,
+    padding: SPACING.sm,
+    ...SHADOWS.sm,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: SPACING.xs,
+  },
+  switchLabel: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: TYPOGRAPHY.fontWeight.medium,
+  },
+  errorText: {
+    color: COLORS.danger,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    marginTop: SPACING.xs,
+    fontWeight: TYPOGRAPHY.fontWeight.medium,
+  },
 });
 
