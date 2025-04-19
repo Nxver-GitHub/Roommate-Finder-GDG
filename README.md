@@ -38,6 +38,7 @@ The application relies on several important packages:
 - **Ionicons**: For UI icons
 - **React Native**: Core framework
 - **TypeScript**: For type safety
+- **Firebase**: For storage
 
 ## Running the Application
 
