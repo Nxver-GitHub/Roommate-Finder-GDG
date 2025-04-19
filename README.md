@@ -61,7 +61,7 @@ This will provide you with several options:
   - `(screens)/conversation/` - Conversation screens for messaging
 - `src/` - Source code
   - `components/` - Reusable UI components
-  - `services/` - Mock API services for development
+  - `services/` - API services for development
   - `utils/` - Utility functions
 - `assets/` - Static assets like images
 
