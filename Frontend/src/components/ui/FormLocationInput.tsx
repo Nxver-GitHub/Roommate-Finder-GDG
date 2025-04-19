@@ -93,7 +93,7 @@ export function FormLocationInput({
         debounce={200}
         keyboardShouldPersistTaps='handled'
         enablePoweredByContainer={true} // Keep Google attribution for compliance
-        listViewDisplayed={false} // Initially hide the list view
+        listViewDisplayed={undefined} // This ensures suggestions show properly
         minLength={2} // Only search after 2 characters to reduce unnecessary API calls
         suppressDefaultStyles={false} // Keep default styles alongside our custom ones
         nestedScrollEnabled={true}

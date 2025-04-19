@@ -5,6 +5,7 @@ import { styled } from 'nativewind';
 
 // Import your Firebase auth function for signup
 import { signUpWithSchoolEmail } from '../../src/firebase/auth'; // Adjust path if needed
+import { COLORS, TYPOGRAPHY, SPACING, BORDER_RADIUS } from '../../src/utils/theme';
 
 const StyledView = styled(View);
 const StyledText = styled(Text);
@@ -62,77 +63,154 @@ export default function SignupScreen() {
   };
 
   return (
-    <StyledSafeAreaView className="flex-1 bg-gray-900">
-      <StyledView className="flex-1 justify-center items-center p-5">
-        <StyledView className="w-full items-center mb-8">
-          <StyledText className="text-5xl font-bold text-cyan-500 mb-2">
-            SlugSpace
-          </StyledText>
-          <StyledText className="text-white text-xl mb-2 italic">
-            Find your UCSC roommate
-          </StyledText>
-        </StyledView>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.contentContainer}>
+        <View style={styles.headerContainer}>
+          <Text style={styles.brand}>SlugSpace</Text>
+          <Text style={styles.tagline}>Finding roommates for UCSC students</Text>
+        </View>
         
-        <StyledText className="text-3xl font-bold mb-8 text-white">
-          Create Account
-        </StyledText>
+        <Text style={styles.title}>Create Account</Text>
 
         {error && (
-          <StyledText className="text-red-500 mb-4 text-center">{error}</StyledText>
+          <Text style={styles.error}>{error}</Text>
         )}
 
-        <StyledTextInput
-          className="w-full h-12 bg-gray-800 rounded-lg px-4 mb-4 text-white border border-gray-700"
+        <TextInput
+          style={styles.input}
           placeholder="Full Name"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={COLORS.text.secondary}
           value={name}
           onChangeText={setName}
           autoCapitalize="words"
         />
-        <StyledTextInput
-          className="w-full h-12 bg-gray-800 rounded-lg px-4 mb-4 text-white border border-gray-700"
+        <TextInput
+          style={styles.input}
           placeholder="School Email (@ucsc.edu)"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={COLORS.text.secondary}
           value={email}
           onChangeText={setEmail}
           keyboardType="email-address"
           autoCapitalize="none"
         />
-        <StyledTextInput
-          className="w-full h-12 bg-gray-800 rounded-lg px-4 mb-4 text-white border border-gray-700"
+        <TextInput
+          style={styles.input}
           placeholder="Password (min. 6 characters)"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={COLORS.text.secondary}
           value={password}
           onChangeText={setPassword}
           secureTextEntry
         />
-        <StyledTextInput
-          className="w-full h-12 bg-gray-800 rounded-lg px-4 mb-6 text-white border border-gray-700"
+        <TextInput
+          style={styles.input}
           placeholder="Confirm Password"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={COLORS.text.secondary}
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           secureTextEntry
         />
 
-        <StyledTouchableOpacity
-          className={`w-full h-12 rounded-lg justify-center items-center mb-4 ${loading ? 'bg-cyan-800' : 'bg-cyan-600'}`}
+        <TouchableOpacity
+          style={[styles.button, loading && styles.disabledButton]}
           onPress={handleSignup}
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color="#ffffff" />
+            <ActivityIndicator color={COLORS.text.primary} />
           ) : (
-            <StyledText className="text-white text-lg font-semibold">Sign Up</StyledText>
+            <Text style={styles.buttonText}>Sign Up</Text>
           )}
-        </StyledTouchableOpacity>
+        </TouchableOpacity>
 
-        <StyledTouchableOpacity onPress={() => router.back()} disabled={loading}>
-          <StyledText className="text-cyan-500 mt-4">
+        <TouchableOpacity 
+          onPress={() => router.back()} 
+          disabled={loading}
+          style={styles.loginLink}
+        >
+          <Text style={styles.loginLinkText}>
             Already have an account? Login
-          </StyledText>
-        </StyledTouchableOpacity>
-      </StyledView>
-    </StyledSafeAreaView>
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
   );
-} 
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background.default,
+  },
+  contentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.lg,
+  },
+  headerContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  brand: {
+    fontSize: 48,
+    fontFamily: 'Poppins-Bold',
+    color: COLORS.secondary,
+    marginBottom: SPACING.xs,
+  },
+  tagline: {
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.text.primary,
+    fontFamily: 'Inter-Medium',
+    marginBottom: SPACING.sm,
+  },
+  title: {
+    fontSize: TYPOGRAPHY.fontSize['3xl'],
+    fontFamily: 'Poppins-Bold',
+    color: COLORS.text.primary,
+    marginBottom: SPACING.xl,
+  },
+  error: {
+    color: COLORS.danger,
+    marginBottom: SPACING.md,
+    textAlign: 'center',
+    width: '100%',
+    fontFamily: 'Inter',
+  },
+  input: {
+    width: '100%',
+    height: 48,
+    backgroundColor: COLORS.background.input,
+    borderRadius: BORDER_RADIUS.sm,
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    color: COLORS.text.primary,
+    borderWidth: 1,
+    borderColor: COLORS.border.default,
+    fontFamily: 'Inter',
+  },
+  button: {
+    width: '100%',
+    height: 48,
+    backgroundColor: COLORS.primary,
+    borderRadius: BORDER_RADIUS.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.md,
+  },
+  disabledButton: {
+    backgroundColor: COLORS.primary + '80', // 50% opacity
+  },
+  buttonText: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    fontFamily: 'Poppins-SemiBold',
+  },
+  loginLink: {
+    marginTop: SPACING.md,
+  },
+  loginLinkText: {
+    color: COLORS.secondary,
+    fontFamily: 'Inter-Medium',
+  }
+}); 

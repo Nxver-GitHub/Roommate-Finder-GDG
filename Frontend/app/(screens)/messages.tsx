@@ -10,9 +10,14 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  StatusBar,
+  Platform,
+  Animated,
+  Pressable,
 } from 'react-native';
-import { router } from 'expo-router';
-import { Search, X } from 'lucide-react-native';
+import { Stack, router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { getCurrentUser } from '../../src/firebase/auth';
 import {
   collection,
@@ -30,6 +35,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../src/firebase/config';
 import { getUserProfile, areUsersMatched } from '../../src/firebase/firestore';
+import { COLORS, SPACING, BORDER_RADIUS, SHADOWS, TYPOGRAPHY } from '../../src/utils/theme';
 
 const PLACEHOLDER_IMAGE_URI = 'https://via.placeholder.com/100/374151/e5e7eb?text=No+Pic';
 const CONVERSATIONS_COLLECTION = 'conversations'; // Collection name for conversations
@@ -41,6 +47,7 @@ export default function MessagesScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [pressedCardId, setPressedCardId] = useState(null);
 
   // Format timestamp for message display
   const formatMessageTime = (timestamp) => {
@@ -229,6 +236,29 @@ export default function MessagesScreen() {
     }
   };
 
+  // Add this animation setup
+  const scaleAnimation = new Animated.Value(1);
+
+  const handlePressIn = (cardId) => {
+    setPressedCardId(cardId);
+    Animated.spring(scaleAnimation, {
+      toValue: 1.05,
+      friction: 7,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    setPressedCardId(null);
+    Animated.spring(scaleAnimation, {
+      toValue: 1,
+      friction: 8,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  };
+
   // Render a single conversation item
   const renderConversationItem = ({ item }) => {
     if (!currentUser?.uid) return null;
@@ -278,49 +308,111 @@ export default function MessagesScreen() {
     const messageTime = formatMessageTime(item.lastMessageTimestamp);
     
     return (
-      <TouchableOpacity
-        style={styles.conversationItem}
-        onPress={() => handleConversationPress(item.otherUserId)}
+      <Animated.View 
+        style={[
+          styles.conversationContainer,
+          {
+            transform: [{ scale: pressedCardId === item.id ? scaleAnimation : 1 }],
+            zIndex: pressedCardId === item.id ? 1 : 0,
+          }
+        ]}
       >
-        <Image
-          source={{ uri: photoURL }}
-          style={styles.avatar}
-        />
-        <View style={styles.conversationContent}>
-          <View style={styles.conversationHeader}>
-            <Text style={styles.conversationName}>{firstName} {lastName}</Text>
-            {item.lastMessageTimestamp && (
-              <Text style={styles.conversationTime}>{messageTime}</Text>
-            )}
-          </View>
-          <View style={styles.conversationFooter}>
-            <Text
-              style={[
-                styles.lastMessage,
-                item.unreadCount > 0 && styles.unreadMessage,
-                (item.lastMessageType === 'image' || item.lastMessageType === 'file') && styles.attachmentMessage
-              ]}
-              numberOfLines={1}
+        <LinearGradient
+          colors={
+            pressedCardId === item.id 
+              ? [COLORS.secondary, '#E5B93C'] // Yellow gradient when pressed
+              : ['rgba(67, 113, 203, 0.8)', 'rgba(67, 113, 203, 0.4)'] // Default blue gradient
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[
+            styles.conversationGlow,
+            pressedCardId === item.id && styles.conversationGlowPressed
+          ]}
+        >
+          <View style={[
+            styles.conversationGradient,
+            pressedCardId === item.id && styles.conversationGradientPressed
+          ]}>
+            <Pressable
+              style={styles.conversationItem}
+              onPress={() => handleConversationPress(item.otherUserId)}
+              onPressIn={() => handlePressIn(item.id)}
+              onPressOut={handlePressOut}
+              delayLongPress={50}
+              android_ripple={{ color: 'transparent' }}
             >
-              {previewText}
-            </Text>
-            {item.unreadCount > 0 && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadBadgeText}>{item.unreadCount}</Text>
+              <View style={styles.avatarContainer}>
+                <Image
+                  source={{ uri: photoURL }}
+                  style={styles.avatar}
+                />
               </View>
-            )}
+              
+              <View style={styles.conversationContent}>
+                <View style={styles.conversationHeader}>
+                  <Text style={styles.conversationName}>{firstName} {lastName}</Text>
+                </View>
+                <View style={styles.messagePreviewContainer}>
+                  <Text
+                    style={[
+                      styles.lastMessage,
+                      item.unreadCount > 0 && styles.unreadMessage,
+                      (item.lastMessageType === 'image' || item.lastMessageType === 'file') && styles.attachmentMessage
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {previewText}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.rightContent}>
+                {item.lastMessageTimestamp && (
+                  <Text style={styles.conversationTime}>{messageTime}</Text>
+                )}
+                {item.unreadCount > 0 && (
+                  <View style={styles.unreadBadge}>
+                    <Text style={styles.unreadBadgeText}>{item.unreadCount}</Text>
+                  </View>
+                )}
+                <View style={styles.arrowContainer}>
+                  <Ionicons name="chevron-forward" size={20} color={COLORS.text.secondary} />
+                </View>
+              </View>
+            </Pressable>
           </View>
-        </View>
-      </TouchableOpacity>
+        </LinearGradient>
+      </Animated.View>
     );
   };
 
   // Loading state
   if (loading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0891b2" />
-        <Text style={styles.loadingText}>Loading conversations...</Text>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.background.default} />
+        
+        {/* App Logo centered at the top */}
+        <View style={styles.logoContainer}>
+          <LinearGradient
+            colors={['rgba(0,0,0,0.6)', 'transparent']}
+            style={styles.logoGradient}
+          >
+            <Image 
+              source={require('../../assets/images/logo.png')} 
+              style={styles.centerLogo} 
+              resizeMode="contain"
+            />
+          </LinearGradient>
+        </View>
+        
+        <Stack.Screen options={{ headerShown: false }} />
+        
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={COLORS.secondary} />
+          <Text style={styles.loadingText}>Loading Conversations...</Text>
+        </View>
       </SafeAreaView>
     );
   }
@@ -328,47 +420,122 @@ export default function MessagesScreen() {
   // Error state
   if (error) {
     return (
-      <SafeAreaView style={styles.emptyContainer}>
-        <Text style={styles.errorText}>{error}</Text>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.background.default} />
+        
+        {/* App Logo centered at the top */}
+        <View style={styles.logoContainer}>
+          <LinearGradient
+            colors={['rgba(0,0,0,0.6)', 'transparent']}
+            style={styles.logoGradient}
+          >
+            <Image 
+              source={require('../../assets/images/logo.png')} 
+              style={styles.centerLogo} 
+              resizeMode="contain"
+            />
+          </LinearGradient>
+        </View>
+        
+        <Stack.Screen options={{ headerShown: false }} />
+        
+        <View style={styles.centerContainer}>
+          <LinearGradient
+            colors={['rgba(31, 41, 55, 0.6)', 'rgba(31, 41, 55, 0.7)']}
+            style={styles.errorContainer}
+          >
+            <Ionicons name="alert-circle-outline" size={40} color="#ef4444" style={styles.errorIcon} />
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity 
+              onPress={() => router.push('/(screens)/')}
+              style={styles.errorButton}
+            >
+              <LinearGradient
+                colors={[COLORS.primary, '#3667C2']}
+                style={styles.errorButtonGradient}
+              >
+                <Text style={styles.errorButtonText}>Back to Discover</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.background.default} />
+      
+      {/* App Logo centered at the top */}
+      <View style={styles.logoContainer}>
+        <LinearGradient
+          colors={['rgba(0,0,0,0.6)', 'transparent']}
+          style={styles.logoGradient}
+        >
+          <Image 
+            source={require('../../assets/images/logo.png')} 
+            style={styles.centerLogo} 
+            resizeMode="contain"
+          />
+        </LinearGradient>
+      </View>
+      
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Messages</Text>
       </View>
+      
+      <Stack.Screen options={{ headerShown: false }} />
 
       <View style={styles.searchContainer}>
-        <Search size={20} color="#888888" style={styles.searchIcon} />
+        <Ionicons name="search-outline" size={20} color={COLORS.text.secondary} style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
           placeholder="Search conversations"
-          placeholderTextColor="#666666"
+          placeholderTextColor={COLORS.text.secondary}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
         {searchQuery.length > 0 && (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <X size={18} color="#888888" />
+            <Ionicons name="close-circle" size={18} color={COLORS.text.secondary} />
           </TouchableOpacity>
         )}
       </View>
 
       {filteredConversations.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyTitle}>No messages yet</Text>
-          <Text style={styles.emptyText}>
-            When you match with others and start chatting, your conversations will appear here.
-          </Text>
+        <View style={styles.centerContainer}>
+          <LinearGradient
+            colors={['rgba(31, 41, 55, 0.6)', 'rgba(31, 41, 55, 0.7)']}
+            style={styles.emptyContainer}
+          >
+            <Ionicons name="chatbubbles-outline" size={50} color={COLORS.text.secondary} />
+            <Text style={styles.emptyText}>No messages yet</Text>
+            <Text style={styles.emptySubText}>When you match with others and start chatting, your conversations will appear here.</Text>
+            <TouchableOpacity 
+              onPress={() => router.push('/(screens)/')}
+              style={styles.emptyButton}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={[COLORS.secondary, '#E5B93C']}
+                style={styles.emptyButtonGradient}
+              >
+                <Text style={styles.emptyButtonText}>Discover Roommates</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </LinearGradient>
         </View>
       ) : (
-        <FlatList
-          data={filteredConversations}
-          renderItem={renderConversationItem}
-          keyExtractor={(item) => item.id}
-        />
+        <View style={styles.contentContainer}>
+          <FlatList
+            data={filteredConversations}
+            renderItem={renderConversationItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+          />
+        </View>
       )}
     </SafeAreaView>
   );
@@ -377,130 +544,274 @@ export default function MessagesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: COLORS.background.default,
   },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: '#1A1A1A',
+  logoContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     alignItems: 'center',
-    justifyContent: 'center',
+    zIndex: 10,
   },
-  loadingText: {
-    marginTop: 10,
-    color: '#9ca3af',
-    fontSize: 16,
+  logoGradient: {
+    width: '100%',
+    paddingTop: Platform.OS === 'ios' ? 50 : 40,
+    paddingBottom: SPACING.md,
+    alignItems: 'center',
+    shadowColor: COLORS.secondary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 8,
   },
-  errorText: {
-    color: '#ef4444',
-    fontSize: 16,
-    textAlign: 'center',
+  centerLogo: {
+    width: 90,
+    height: 48,
+    marginTop: SPACING.sm,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingTop: 60,
+    paddingBottom: SPACING.md,
+    backgroundColor: 'transparent',
+    zIndex: 2,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: TYPOGRAPHY.fontSize.xl,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: COLORS.text.primary,
+    textAlign: 'center',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#333',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    marginHorizontal: 20,
-    marginBottom: 15,
-    marginTop: 5,
+    backgroundColor: 'rgba(31, 41, 55, 0.8)',
+    borderRadius: BORDER_RADIUS.md,
+    paddingHorizontal: SPACING.sm,
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+    ...SHADOWS.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.15)',
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: SPACING.xs,
   },
   searchInput: {
     flex: 1,
     height: 40,
-    color: '#FFFFFF',
-    fontSize: 16,
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    paddingVertical: SPACING.xs,
+  },
+  contentContainer: {
+    flex: 1,
+    paddingHorizontal: SPACING.md,
+  },
+  listContent: {
+    paddingBottom: SPACING.xl,
+  },
+  conversationContainer: {
+    marginBottom: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'visible',
+    shadowColor: COLORS.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  conversationGlow: {
+    padding: 2,
+    borderRadius: BORDER_RADIUS.lg,
+    shadowColor: COLORS.secondary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  conversationGlowPressed: {
+    padding: 2.5, // Slightly thicker border when pressed
+    shadowColor: COLORS.secondary,
+    shadowOpacity: 0.8,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  conversationGradient: {
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: 'rgba(31, 41, 55, 0.8)',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.2)',
+  },
+  conversationGradientPressed: {
+    backgroundColor: 'rgba(31, 41, 55, 0.9)',
+    borderColor: COLORS.secondary,
   },
   conversationItem: {
     flexDirection: 'row',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    padding: SPACING.md,
+    alignItems: 'center',
+  },
+  avatarContainer: {
+    marginRight: SPACING.md,
   },
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 15,
-    backgroundColor: '#333', // Placeholder background
+    width: 56,
+    height: 56,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.background.elevated,
+    borderWidth: 2,
+    borderColor: COLORS.secondary,
+    shadowColor: COLORS.secondary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   conversationContent: {
     flex: 1,
     justifyContent: 'center',
   },
   conversationHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 5,
+    marginBottom: 4,
   },
   conversationName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    fontWeight: '600',
+    color: COLORS.text.primary,
   },
-  conversationTime: {
-    fontSize: 14,
-    color: '#888888',
-  },
-  conversationFooter: {
+  messagePreviewContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
   },
   lastMessage: {
-    fontSize: 14,
-    color: '#888888',
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.secondary,
     flex: 1,
   },
+  rightContent: {
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    height: '100%',
+    paddingLeft: SPACING.sm,
+  },
+  conversationTime: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.text.secondary,
+    marginBottom: 4,
+  },
   unreadMessage: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+    color: COLORS.text.primary,
+    fontWeight: '500',
+  },
+  attachmentMessage: {
+    color: COLORS.text.secondary,
+    fontStyle: 'italic',
   },
   unreadBadge: {
-    backgroundColor: '#0891b2',
-    borderRadius: 10,
-    width: 20,
+    backgroundColor: COLORS.secondary,
+    borderRadius: BORDER_RADIUS.full,
+    minWidth: 20,
     height: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 10,
+    paddingHorizontal: 6,
+    marginBottom: 4,
   },
   unreadBadgeText: {
-    color: '#FFF',
-    fontSize: 12,
+    color: COLORS.background.default,
+    fontSize: TYPOGRAPHY.fontSize.xs,
     fontWeight: 'bold',
+  },
+  arrowContainer: {
+    justifyContent: 'center',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.md,
+  },
+  errorContainer: {
+    width: '90%',
+    padding: SPACING.lg,
+    alignItems: 'center',
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    ...SHADOWS.md,
+  },
+  errorIcon: {
+    marginBottom: SPACING.md,
+  },
+  errorText: {
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: '#ef4444',
+    textAlign: 'center',
+    marginBottom: SPACING.lg,
+  },
+  errorButton: {
+    width: '100%',
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+    ...SHADOWS.sm,
+  },
+  errorButtonGradient: {
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    alignItems: 'center',
+  },
+  errorButtonText: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: 'bold',
+  },
+  loadingText: {
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.text.secondary,
+    marginTop: SPACING.md,
   },
   emptyContainer: {
-    flex: 1,
+    width: '90%',
+    padding: SPACING.xl,
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 10,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.15)',
+    ...SHADOWS.md,
   },
   emptyText: {
-    fontSize: 16,
-    color: '#888888',
-    textAlign: 'center',
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    color: COLORS.text.primary,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
+    fontWeight: '600',
   },
-  attachmentMessage: {
-    color: '#9ca3af', // Slightly muted color for attachments
+  emptySubText: {
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.text.secondary,
+    textAlign: 'center',
+    marginBottom: SPACING.lg,
+  },
+  emptyButton: {
+    width: '100%',
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+    ...SHADOWS.md,
+  },
+  emptyButtonGradient: {
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    alignItems: 'center',
+  },
+  emptyButtonText: {
+    color: '#000000',
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: 'bold',
   },
 });

@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LifestylePreference } from '../../services/searchService';
+import { COLORS, SPACING, BORDER_RADIUS, TYPOGRAPHY } from '../../utils/theme';
 
 interface LifestyleSelectorProps {
   value: LifestylePreference;
@@ -33,7 +34,7 @@ export default function LifestyleSelector({ value, onChange }: LifestyleSelector
   };
   
   const getPreferenceColor = (preference: boolean | null): string => {
-    if (preference === null) return "#ccc";
+    if (preference === null) return COLORS.text.secondary;
     return preference ? "#4CAF50" : "#f44336";
   };
   
@@ -145,7 +146,7 @@ export default function LifestyleSelector({ value, onChange }: LifestyleSelector
         </TouchableOpacity>
         
         <TouchableOpacity
-          style={styles.preferenceItem}
+          style={[styles.preferenceItem, { borderBottomWidth: 0 }]}
           onPress={() => togglePreference('visitors')}
         >
           <View style={styles.preferenceTextContainer}>
@@ -198,77 +199,85 @@ export default function LifestyleSelector({ value, onChange }: LifestyleSelector
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    padding: SPACING.xs,
   },
   title: {
-    fontSize: 20,
+    fontSize: TYPOGRAPHY.fontSize.lg,
     fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 12,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.sm,
   },
   description: {
-    fontSize: 14,
-    color: '#ccc',
-    marginBottom: 20,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.secondary,
+    marginBottom: SPACING.md,
   },
   preferencesContainer: {
-    backgroundColor: '#232323',
-    borderRadius: 8,
-    marginBottom: 24,
+    backgroundColor: 'rgba(31, 41, 55, 0.7)',
+    borderRadius: BORDER_RADIUS.md,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.1)',
   },
   preferenceItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: 'rgba(67, 113, 203, 0.1)',
   },
   preferenceTextContainer: {
     flex: 1,
+    marginRight: SPACING.sm,
   },
   preferenceLabel: {
-    fontSize: 16,
-    color: '#fff',
-    marginBottom: 4,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.text.primary,
+    marginBottom: 2,
   },
   preferenceValue: {
-    fontSize: 14,
+    fontSize: TYPOGRAPHY.fontSize.sm,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 12,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: '600',
+    color: COLORS.text.primary,
+    marginBottom: SPACING.sm,
   },
   cleanlinessContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
+    paddingHorizontal: SPACING.xs,
   },
   cleanlinessOption: {
-    width: 40,
-    height: 40,
-    backgroundColor: '#333',
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    backgroundColor: 'rgba(31, 41, 55, 0.7)',
+    borderRadius: BORDER_RADIUS.full,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.1)',
   },
   selectedCleanlinessOption: {
-    backgroundColor: '#FFD700',
+    backgroundColor: COLORS.secondary,
+    borderColor: COLORS.secondary,
   },
   cleanlinessText: {
-    color: '#fff',
-    fontSize: 16,
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.sm,
     fontWeight: 'bold',
   },
   selectedCleanlinessText: {
     color: '#000',
   },
   cleanlinessLabel: {
-    color: '#ccc',
-    fontSize: 14,
+    color: COLORS.text.secondary,
+    fontSize: TYPOGRAPHY.fontSize.sm,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 0,
+    marginBottom: SPACING.md,
   },
 }); 

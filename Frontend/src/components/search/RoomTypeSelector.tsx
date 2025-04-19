@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Switch } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { RoomType } from '../../services/searchService';
+import { COLORS, SPACING, BORDER_RADIUS, TYPOGRAPHY } from '../../utils/theme';
 
 interface RoomTypeSelectorProps {
   value: RoomType;
@@ -83,8 +85,8 @@ export default function RoomTypeSelector({ value, onChange }: RoomTypeSelectorPr
           <Switch
             value={value.private}
             onValueChange={() => toggleRoomType('private')}
-            trackColor={{ false: '#333', true: '#FFD700' }}
-            thumbColor={value.private ? '#FFD700' : '#f4f3f4'}
+            trackColor={{ false: COLORS.background.input, true: COLORS.secondary }}
+            thumbColor={value.private ? '#fff' : '#f4f3f4'}
           />
         </View>
         
@@ -93,8 +95,8 @@ export default function RoomTypeSelector({ value, onChange }: RoomTypeSelectorPr
           <Switch
             value={value.shared}
             onValueChange={() => toggleRoomType('shared')}
-            trackColor={{ false: '#333', true: '#FFD700' }}
-            thumbColor={value.shared ? '#FFD700' : '#f4f3f4'}
+            trackColor={{ false: COLORS.background.input, true: COLORS.secondary }}
+            thumbColor={value.shared ? '#fff' : '#f4f3f4'}
           />
         </View>
         
@@ -103,8 +105,8 @@ export default function RoomTypeSelector({ value, onChange }: RoomTypeSelectorPr
           <Switch
             value={value.entirePlace}
             onValueChange={() => toggleRoomType('entirePlace')}
-            trackColor={{ false: '#333', true: '#FFD700' }}
-            thumbColor={value.entirePlace ? '#FFD700' : '#f4f3f4'}
+            trackColor={{ false: COLORS.background.input, true: COLORS.secondary }}
+            thumbColor={value.entirePlace ? '#fff' : '#f4f3f4'}
           />
         </View>
       </View>
@@ -160,60 +162,64 @@ export default function RoomTypeSelector({ value, onChange }: RoomTypeSelectorPr
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    padding: 8,
+    padding: SPACING.xs,
   },
   title: {
-    fontSize: 20,
+    fontSize: TYPOGRAPHY.fontSize.lg,
     fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 20,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.md,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginTop: 20,
-    marginBottom: 12,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: '600',
+    color: COLORS.text.primary,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
   },
   optionsContainer: {
-    backgroundColor: '#232323',
-    borderRadius: 8,
-    padding: 8,
+    backgroundColor: 'rgba(31, 41, 55, 0.7)',
+    borderRadius: BORDER_RADIUS.md,
+    paddingHorizontal: SPACING.xs,
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.1)',
   },
   optionContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.xs,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: 'rgba(67, 113, 203, 0.1)',
   },
   optionLabel: {
-    fontSize: 16,
-    color: '#fff',
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.text.primary,
   },
   numberOptions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    marginBottom: SPACING.sm,
   },
   numberOption: {
-    width: 46,
-    height: 46,
-    backgroundColor: '#333',
-    borderRadius: 23,
+    width: 40,
+    height: 40,
+    backgroundColor: 'rgba(31, 41, 55, 0.7)',
+    borderRadius: BORDER_RADIUS.full,
     justifyContent: 'center',
     alignItems: 'center',
-    margin: 6,
+    margin: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.1)',
   },
   selectedNumberOption: {
-    backgroundColor: '#FFD700',
+    backgroundColor: COLORS.secondary,
   },
   numberOptionText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: '600',
   },
   selectedNumberOptionText: {
     color: '#000',

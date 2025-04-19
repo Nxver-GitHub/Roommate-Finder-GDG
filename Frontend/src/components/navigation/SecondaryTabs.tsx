@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, usePathname } from 'expo-router';
+import { COLORS, SPACING, BORDER_RADIUS } from '../../utils/theme';
 
 interface SecondaryTab {
   id: string;
@@ -71,7 +72,7 @@ export default function SecondaryTabs({ tabs, onDismiss }: SecondaryTabsProps) {
               <Ionicons 
                 name={isActive ? tab.icon : `${tab.icon}-outline`}
                 size={20} 
-                color={isActive ? "#000" : "#fff"} 
+                color={isActive ? "#000" : COLORS.text.primary} 
               />
               <Text 
                 style={[
@@ -102,32 +103,34 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
+    padding: SPACING.sm,
   },
   tabContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 8,
+    marginLeft: SPACING.sm,
   },
   tab: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#333',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    backgroundColor: COLORS.background.elevated,
+    borderRadius: BORDER_RADIUS.full,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
   },
   activeTab: {
-    backgroundColor: '#FFD700',
+    backgroundColor: COLORS.secondary,
   },
   tabText: {
-    color: '#fff',
+    color: COLORS.text.primary,
     marginLeft: 4,
     fontWeight: '500',
+    fontFamily: 'Inter-Medium',
   },
   activeTabText: {
     color: '#000',
     fontWeight: 'bold',
+    fontFamily: 'Inter-Bold',
   },
   dismissButton: {
     marginLeft: 4,

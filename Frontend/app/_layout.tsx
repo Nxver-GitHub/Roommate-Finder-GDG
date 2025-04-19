@@ -13,6 +13,7 @@ import { authStateListener } from '../src/firebase/auth'; // Adjust path if need
 // Import necessary Firestore functions
 import { doc, onSnapshot } from 'firebase/firestore'; 
 import { db } from '../src/firebase/config'; // Import db instance
+import { COLORS } from '../src/utils/theme';
 
 // Ignore specific warnings if needed
 LogBox.ignoreLogs(['Warning: ...']); 
@@ -155,30 +156,31 @@ export default function RootLayout() {
     // Dependencies: Check navigation whenever loading state, user, profile, or location changes
   }, [isAuthLoading, isProfileLoading, authUser, userProfile, segments, router, pathname]); 
 
-  // Loading indicator display (remains the same)
+  // Loading indicator display
   const isLoading = isAuthLoading || (!!authUser && isProfileLoading);
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a1a' }}>
-        <ActivityIndicator size="large" color="#0891b2" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background.default }}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
       </View>
     );
   }
 
-  // Return the Stack (remains the same)
+  // Return the Stack
   return (
     <Stack 
       screenOptions={{
         headerShown: false,
         headerStyle: {
-          backgroundColor: '#121212',
+          backgroundColor: COLORS.background.default,
         },
         headerTitleStyle: {
-          color: '#FFFFFF',
+          color: COLORS.text.primary,
+          fontWeight: '600',
         },
-        headerTintColor: '#FFFFFF',
+        headerTintColor: COLORS.text.primary,
         contentStyle: {
-          backgroundColor: '#121212',
+          backgroundColor: COLORS.background.default,
         },
       }}
     >

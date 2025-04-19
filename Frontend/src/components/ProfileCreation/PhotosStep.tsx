@@ -1,11 +1,24 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, ScrollView } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  Image, 
+  ActivityIndicator, 
+  ScrollView, 
+  Dimensions,
+  Alert 
+} from 'react-native';
 import { useProfileCreation } from '../../contexts/ProfileCreationContext';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { Plus, X, Camera, Upload, Check } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
+import { Plus, X, Camera, Upload, Check, ArrowLeft, Image as ImageIcon } from 'lucide-react-native';
 import { setUserProfile } from '../../firebase/firestore';
 import { getCurrentUser } from '../../firebase/auth';
+import { COLORS, SPACING, BORDER_RADIUS, SHADOWS, TYPOGRAPHY } from '../../utils/theme';
 
 export function PhotosStep() {
   const { formData, updateFormData, setCurrentStep } = useProfileCreation();
@@ -15,6 +28,11 @@ export function PhotosStep() {
 
   const pickImage = async (useCamera = false) => {
     try {
+      if (photos.length >= 5) {
+        setError('You can add up to 5 photos');
+        return;
+      }
+      
       setLoading(true);
       setError('');
 
@@ -60,10 +78,27 @@ export function PhotosStep() {
   };
 
   const removePhoto = (index: number) => {
-    const newPhotos = [...photos];
-    newPhotos.splice(index, 1);
-    setPhotos(newPhotos);
-    updateFormData({ photos: newPhotos });
+    // Confirm before removing
+    Alert.alert(
+      "Remove Photo",
+      "Are you sure you want to remove this photo?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        { 
+          text: "Remove", 
+          onPress: () => {
+            const newPhotos = [...photos];
+            newPhotos.splice(index, 1);
+            setPhotos(newPhotos);
+            updateFormData({ photos: newPhotos });
+          },
+          style: "destructive"
+        }
+      ]
+    );
   };
 
   const handleBack = () => {
@@ -110,209 +145,349 @@ export function PhotosStep() {
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
-      <Text style={styles.title}>Add Photos</Text>
-      <Text style={styles.subtitle}>
-        Add photos that clearly show you. This helps potential roommates get to know you better.
-      </Text>
+    <ScrollView 
+      style={styles.container} 
+      showsVerticalScrollIndicator={false} 
+      nestedScrollEnabled={true}
+    >
+      {/* Header */}
+      <Animated.View 
+        entering={FadeInDown.duration(600).delay(100)}
+        style={styles.headerContainer}
+      >
+        <LinearGradient
+          colors={[COLORS.secondary, 'rgba(240, 210, 100, 0.8)']}
+          start={{x: 0, y: 0}}
+          end={{x: 1, y: 1}}
+          style={styles.headerGradient}
+        >
+          <ImageIcon size={40} color={COLORS.primary} />
+          <Text style={styles.headerText}>Show Yourself Off</Text>
+        </LinearGradient>
+      </Animated.View>
 
-      <View style={styles.photosContainer}>
+      {/* Subtitle */}
+      <Animated.View entering={FadeInDown.duration(600).delay(150)}>
+        <Text style={styles.subtitle}>
+          Add photos that clearly show you. This helps potential roommates get to know you better.
+        </Text>
+      </Animated.View>
+
+      {/* Photos Grid */}
+      <Animated.View 
+        entering={FadeInDown.duration(600).delay(200)}
+        style={styles.photosContainer}
+      >
         {photos.map((photo, index) => (
-          <View key={index} style={styles.photoWrapper}>
-            <Image source={{ uri: photo }} style={styles.photo} />
-            <TouchableOpacity
-              style={styles.removeButton}
-              onPress={() => removePhoto(index)}
+          <Animated.View 
+            key={index} 
+            entering={FadeIn.duration(300)} 
+            style={styles.photoWrapper}
+          >
+            <LinearGradient
+              colors={[COLORS.primary, 'rgba(67, 113, 203, 0.7)']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={styles.photoBorder}
             >
-              <X size={20} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
+              <Image source={{ uri: photo }} style={styles.photo} />
+              <TouchableOpacity
+                style={styles.removeButton}
+                onPress={() => removePhoto(index)}
+              >
+                <X size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </LinearGradient>
+          </Animated.View>
         ))}
 
         {photos.length < 5 && (
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => pickImage(false)}
-            disabled={loading}
-          >
-            {loading && photos.length < 5 ? (
-              <ActivityIndicator color="#FFD700" />
-            ) : (
-              <>
-                <Plus size={24} color="#FFFFFF" />
-                <Text style={styles.addButtonText}>Add Photo</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          <Animated.View entering={FadeIn.duration(300)} style={styles.photoWrapper}>
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => pickImage(false)}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={COLORS.secondary} size="large" />
+              ) : (
+                <>
+                  <Plus size={32} color={COLORS.text.secondary} />
+                  <Text style={styles.addButtonText}>Add Photo</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
         )}
-      </View>
+      </Animated.View>
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {/* Error Message */}
+      {error ? (
+        <Animated.View entering={FadeIn.duration(300)}>
+          <Text style={styles.errorText}>{error}</Text>
+        </Animated.View>
+      ) : null}
 
-      <View style={styles.optionsContainer}>
+      {/* Upload Options */}
+      <Animated.View 
+        entering={FadeInDown.duration(600).delay(300)}
+        style={styles.formContainer}
+      >
+        <View style={styles.formGlowBorder}>
+          <LinearGradient
+            colors={['rgba(240, 210, 100, 0.7)', 'rgba(67, 113, 203, 0.7)']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 1}}
+            style={styles.gradientBorder}
+          >
+            <View style={styles.formContent}>
+              <Text style={styles.optionsTitle}>Upload Options</Text>
+              
+              <TouchableOpacity
+                style={styles.optionButton}
+                onPress={() => pickImage(true)}
+                disabled={loading || photos.length >= 5}
+              >
+                <LinearGradient
+                  colors={['rgba(31, 41, 55, 0.9)', 'rgba(31, 41, 55, 0.7)']}
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 1}}
+                  style={styles.optionGradient}
+                >
+                  <Camera size={24} color={COLORS.text.primary} />
+                  <Text style={styles.optionText}>Take Photo</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.optionButton}
+                onPress={() => pickImage(false)}
+                disabled={loading || photos.length >= 5}
+              >
+                <LinearGradient
+                  colors={['rgba(31, 41, 55, 0.9)', 'rgba(31, 41, 55, 0.7)']}
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 1}}
+                  style={styles.optionGradient}
+                >
+                  <Upload size={24} color={COLORS.text.primary} />
+                  <Text style={styles.optionText}>Upload from Gallery</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
+        </View>
+      </Animated.View>
+
+      {/* Navigation Buttons */}
+      <Animated.View 
+        entering={FadeInUp.duration(600).delay(400)}
+        style={styles.buttonContainer}
+      >
         <TouchableOpacity
-          style={styles.optionButton}
-          onPress={() => pickImage(true)}
-          disabled={loading || photos.length >= 5}
-        >
-          <Camera size={24} color="#FFFFFF" />
-          <Text style={styles.optionText}>Take Photo</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.optionButton}
-          onPress={() => pickImage(false)}
-          disabled={loading || photos.length >= 5}
-        >
-          <Upload size={24} color="#FFFFFF" />
-          <Text style={styles.optionText}>Upload from Gallery</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.buttonsContainer}>
-        <TouchableOpacity
-          style={[styles.button, styles.backButton]}
+          style={styles.buttonWrapper}
           onPress={handleBack}
+          activeOpacity={0.8}
           disabled={loading}
         >
-          <Text style={styles.backButtonText}>Back</Text>
+          <LinearGradient
+            colors={['rgba(67, 113, 203, 0.8)', 'rgba(27, 41, 80, 0.8)']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 1}}
+            style={styles.backButton}
+          >
+            <ArrowLeft size={20} color={COLORS.text.primary} />
+            <Text style={styles.backButtonText}>Previous</Text>
+          </LinearGradient>
         </TouchableOpacity>
+        
         <TouchableOpacity
-          style={[
-            styles.button,
-            styles.nextButton,
-            (photos.length === 0 || loading) && styles.disabledButton,
-          ]}
+          style={styles.buttonWrapper}
           onPress={handleComplete}
+          activeOpacity={0.8}
           disabled={photos.length === 0 || loading}
         >
-          {loading ? (
-             <ActivityIndicator color="#000000" size="small" style={{marginRight: 8}} />
-          ) : null}
-          <Text style={styles.nextButtonText}>Complete Profile</Text>
-          {!loading && <Check size={20} color="#000000" />} 
+          <LinearGradient
+            colors={photos.length === 0 || loading ? 
+              ['rgba(100, 100, 100, 0.8)', 'rgba(70, 70, 70, 0.8)'] : 
+              [COLORS.success, '#2A8A71']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 1}}
+            style={styles.completeButton}
+          >
+            {loading ? (
+              <ActivityIndicator color={COLORS.text.primary} size="small" style={{marginRight: 8}} />
+            ) : null}
+            <Text style={styles.completeButtonText}>Complete Profile</Text>
+            {!loading && <Check size={20} color={COLORS.text.primary} />}
+          </LinearGradient>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </ScrollView>
   );
 }
 
+const { width } = Dimensions.get('window');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 8,
+  headerContainer: {
+    marginBottom: SPACING.md,
+  },
+  headerGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    ...SHADOWS.md,
+  },
+  headerText: {
+    color: COLORS.primary,
+    fontSize: TYPOGRAPHY.fontSize.xl,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    marginLeft: SPACING.sm,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#CCCCCC',
-    marginBottom: 24,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.text.secondary,
+    marginBottom: SPACING.lg,
+    textAlign: 'center',
   },
   photosContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
+    justifyContent: 'space-between',
   },
   photoWrapper: {
-    width: '48%',
+    width: (width - SPACING.md * 3) / 2,
     aspectRatio: 1,
-    margin: '1%',
-    borderRadius: 12,
+    marginBottom: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
     overflow: 'hidden',
-    position: 'relative',
+  },
+  photoBorder: {
+    width: '100%',
+    height: '100%',
+    padding: 2,
+    borderRadius: BORDER_RADIUS.md,
   },
   photo: {
     width: '100%',
     height: '100%',
+    borderRadius: BORDER_RADIUS.sm,
   },
   removeButton: {
     position: 'absolute',
     top: 8,
     right: 8,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    borderRadius: 15,
+    borderRadius: BORDER_RADIUS.full,
     width: 30,
     height: 30,
     justifyContent: 'center',
     alignItems: 'center',
+    ...SHADOWS.sm,
   },
   addButton: {
-    width: '48%',
-    aspectRatio: 1,
-    margin: '1%',
-    borderRadius: 12,
+    width: '100%',
+    height: '100%',
+    borderRadius: BORDER_RADIUS.md,
     borderWidth: 2,
-    borderColor: '#444',
+    borderColor: COLORS.border.light,
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#333',
+    backgroundColor: 'rgba(31, 41, 55, 0.5)',
   },
   addButtonText: {
-    color: '#FFFFFF',
-    marginTop: 8,
-    fontSize: 14,
+    color: COLORS.text.primary,
+    marginTop: SPACING.sm,
+    fontSize: TYPOGRAPHY.fontSize.md,
   },
   errorText: {
-    color: '#FF4444',
-    fontSize: 14,
-    marginVertical: 8,
+    color: COLORS.danger,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    marginVertical: SPACING.sm,
+    textAlign: 'center',
+    fontWeight: TYPOGRAPHY.fontWeight.medium,
+  },
+  formContainer: {
+    marginBottom: SPACING.lg,
+  },
+  formGlowBorder: {
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'hidden',
+    ...SHADOWS.md,
+  },
+  gradientBorder: {
+    padding: 2, // Border thickness
+  },
+  formContent: {
+    backgroundColor: COLORS.background.elevated,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+  },
+  optionsTitle: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
+    marginBottom: SPACING.md,
     textAlign: 'center',
   },
-  optionsContainer: {
-    marginBottom: 24,
-  },
   optionButton: {
+    marginBottom: SPACING.sm,
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+    ...SHADOWS.sm,
+  },
+  optionGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#333',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
+    padding: SPACING.md,
   },
   optionText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginLeft: 12,
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    marginLeft: SPACING.md,
   },
-  buttonsContainer: {
+  buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 20,
-    marginBottom: 40,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xl,
   },
-  button: {
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
+  buttonWrapper: {
     flex: 1,
-    marginHorizontal: 5,
-    flexDirection: 'row',
-    justifyContent: 'center',
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+    ...SHADOWS.md,
+    marginHorizontal: SPACING.xs,
   },
   backButton: {
-    backgroundColor: '#333',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.md,
   },
-  nextButton: {
-    backgroundColor: '#FFD700',
-  },
-  disabledButton: {
-    backgroundColor: '#555',
-    opacity: 0.7,
+  completeButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.md,
   },
   backButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    marginLeft: SPACING.xs,
   },
-  nextButtonText: {
-    color: '#000000',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginRight: 8,
+  completeButtonText: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    marginRight: SPACING.xs,
   },
 }); 

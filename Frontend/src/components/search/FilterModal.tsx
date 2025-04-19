@@ -7,9 +7,13 @@ import {
   TouchableOpacity, 
   ScrollView,
   Alert,
-  TextInput
+  TextInput,
+  Platform,
+  Animated
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { SearchFilters, defaultFilters } from '../../services/searchService';
 import BudgetRangeSelector from './BudgetRangeSelector';
 import LocationSelector from './LocationSelector';
@@ -17,6 +21,7 @@ import DateRangeSelector from './DateRangeSelector';
 import RoomTypeSelector from './RoomTypeSelector';
 import LifestyleSelector from './LifestyleSelector';
 import GenderSelector from './GenderSelector';
+import { COLORS, SPACING, BORDER_RADIUS, SHADOWS, TYPOGRAPHY } from '../../utils/theme';
 
 interface FilterModalProps {
   visible: boolean;
@@ -37,37 +42,72 @@ export default function FilterModal({
   const [currentSection, setCurrentSection] = useState<number>(0);
   const [saveFilterName, setSaveFilterName] = useState('');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  
+  // Animation values for button effects
+  const saveButtonAnim = React.useRef(new Animated.Value(1)).current;
+  const applyButtonAnim = React.useRef(new Animated.Value(1)).current;
+  const shimmerAnim = React.useRef(new Animated.Value(0)).current;
+  
+  // Shimmer effect
+  React.useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmerAnim, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmerAnim, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        })
+      ])
+    ).start();
+  }, []);
+  
+  // Calculate shimmer translation
+  const translateX = shimmerAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-200, 200],
+  });
 
   const sections = [
     { 
       title: 'Budget', 
       key: 'budgetRange',
-      component: BudgetRangeSelector 
+      component: BudgetRangeSelector,
+      icon: 'cash-outline'
     },
     { 
       title: 'Location', 
       key: 'location',
-      component: LocationSelector 
+      component: LocationSelector,
+      icon: 'location-outline'
     },
     { 
       title: 'Move-in Dates', 
       key: 'moveInDates',
-      component: DateRangeSelector 
+      component: DateRangeSelector,
+      icon: 'calendar-outline'
     },
     { 
       title: 'Room Type', 
       key: 'roomType',
-      component: RoomTypeSelector 
+      component: RoomTypeSelector,
+      icon: 'bed-outline'
     },
     { 
       title: 'Lifestyle', 
       key: 'lifestyle',
-      component: LifestyleSelector 
+      component: LifestyleSelector,
+      icon: 'people-outline'
     },
     { 
       title: 'Gender',
       key: 'genderPreference',
-      component: GenderSelector
+      component: GenderSelector,
+      icon: 'person-outline'
     },
   ];
 
@@ -130,6 +170,24 @@ export default function FilterModal({
   }, [initialFilters]);
 
   const SectionComponent = sections[currentSection].component;
+  
+  // Button animation handlers
+  const handlePressIn = (animValue: Animated.Value) => {
+    Animated.spring(animValue, {
+      toValue: 0.95,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = (animValue: Animated.Value) => {
+    Animated.spring(animValue, {
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // Determine if the current section is Location to handle it specially
+  const isLocationSection = sections[currentSection].key === 'location';
 
   return (
     <Modal
@@ -139,21 +197,34 @@ export default function FilterModal({
       onRequestClose={onClose}
     >
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close-outline" size={28} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Filters</Text>
-          <TouchableOpacity onPress={handleReset}>
-            <Text style={styles.resetText}>Reset</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Header with gradient and close button */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.8)', 'rgba(31, 41, 55, 0.4)']}
+          style={styles.headerGradient}
+        >
+          <View style={styles.header}>
+            <TouchableOpacity 
+              onPress={onClose}
+              style={styles.iconButton}
+            >
+              <Ionicons name="arrow-back" size={24} color={COLORS.text.primary} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Filters</Text>
+            <TouchableOpacity 
+              onPress={handleReset}
+              style={styles.resetButton}
+            >
+              <Text style={styles.resetText}>Reset</Text>
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
 
+        {/* Filter navigation tabs */}
         <View style={styles.navigationContainer}>
           <ScrollView 
             horizontal 
             showsHorizontalScrollIndicator={false}
-            nestedScrollEnabled={true}
+            contentContainerStyle={styles.navScrollContent}
           >
             {sections.map((section, index) => (
               <TouchableOpacity
@@ -164,6 +235,12 @@ export default function FilterModal({
                 ]}
                 onPress={() => setCurrentSection(index)}
               >
+                <Ionicons 
+                  name={section.icon as any} 
+                  size={18} 
+                  color={currentSection === index ? COLORS.text.accent : COLORS.text.secondary} 
+                  style={styles.navIcon}
+                />
                 <Text 
                   style={[
                     styles.navItemText,
@@ -177,61 +254,143 @@ export default function FilterModal({
           </ScrollView>
         </View>
 
-        <View style={styles.contentContainer}>
-          <SectionComponent
-            value={filters[sections[currentSection].key as keyof SearchFilters]}
-            onChange={(value: any) => 
-              updateFilters(sections[currentSection].key, value)
-            }
-          />
+        {/* Filter content container */}
+        <View style={styles.contentOuterContainer}>
+          <LinearGradient
+            colors={['rgba(31, 41, 55, 0.5)', 'rgba(31, 41, 55, 0.5)']}
+            style={styles.contentGradient}
+          >
+            {/* 
+              Special handling for Location section to avoid nesting 
+              ScrollView and FlatList with same orientation
+            */}
+            {isLocationSection ? (
+              // For Location section, render directly without ScrollView
+              <View style={[styles.contentContainer, styles.contentScrollViewContent]}>
+                <LocationSelector
+                  value={filters.location}
+                  onChange={(value: any) => 
+                    updateFilters('location', value)
+                  }
+                />
+              </View>
+            ) : (
+              // For other sections, use ScrollView for scrolling
+              <ScrollView 
+                style={styles.contentScrollView}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.contentScrollViewContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.contentContainer}>
+                  <SectionComponent
+                    value={filters[sections[currentSection].key as keyof SearchFilters]}
+                    onChange={(value: any) => 
+                      updateFilters(sections[currentSection].key, value)
+                    }
+                  />
+                </View>
+              </ScrollView>
+            )}
+          </LinearGradient>
         </View>
 
+        {/* Footer buttons */}
         <View style={styles.footer}>
-          <TouchableOpacity 
-            style={styles.saveButton}
-            onPress={() => setShowSaveDialog(true)}
-          >
-            <Ionicons name="bookmark-outline" size={20} color="#fff" />
-            <Text style={styles.saveButtonText}>Save</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.applyButton}
-            onPress={() => onApply(filters)}
-          >
-            <Text style={styles.applyButtonText}>Apply Filters</Text>
-          </TouchableOpacity>
+          {/* Save button */}
+          <Animated.View style={{
+            transform: [{ scale: saveButtonAnim }],
+            flex: 1,
+          }}>
+            <TouchableOpacity 
+              style={styles.saveButton}
+              onPress={() => setShowSaveDialog(true)}
+              onPressIn={() => handlePressIn(saveButtonAnim)}
+              onPressOut={() => handlePressOut(saveButtonAnim)}
+              activeOpacity={1}
+            >
+              <LinearGradient
+                colors={['rgba(31, 41, 55, 0.8)', 'rgba(31, 41, 55, 0.9)']}
+                style={styles.saveButtonGradient}
+              >
+                <Ionicons name="bookmark-outline" size={20} color={COLORS.text.primary} />
+                <Text style={styles.saveButtonText}>Save</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
+          
+          {/* Apply button */}
+          <Animated.View style={{
+            transform: [{ scale: applyButtonAnim }],
+            flex: 2,
+            marginLeft: SPACING.sm,
+          }}>
+            <TouchableOpacity 
+              style={styles.applyButton}
+              onPress={() => onApply(filters)}
+              onPressIn={() => handlePressIn(applyButtonAnim)}
+              onPressOut={() => handlePressOut(applyButtonAnim)}
+              activeOpacity={1}
+            >
+              <LinearGradient
+                colors={[COLORS.secondary, '#E5B93C']}
+                style={styles.applyButtonGradient}
+              >
+                <Text style={styles.applyButtonText}>Apply Filters</Text>
+                
+                {/* Shimmer effect */}
+                <Animated.View 
+                  style={[
+                    styles.shimmerEffect,
+                    { transform: [{ translateX }] }
+                  ]}
+                />
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
         </View>
 
+        {/* Save dialog */}
         {showSaveDialog && (
           <View style={styles.saveDialogContainer}>
-            <View style={styles.saveDialogBackdrop} />
+            <BlurView intensity={40} tint="dark" style={styles.saveDialogBackdrop} />
             <View style={styles.saveDialog}>
-              <Text style={styles.saveDialogTitle}>Save Filter</Text>
-              <TextInput
-                style={styles.saveDialogInput}
-                placeholder="Enter a name for this filter"
-                placeholderTextColor="#999"
-                value={saveFilterName}
-                onChangeText={setSaveFilterName}
-                autoFocus={true}
-              />
-              <View style={styles.saveDialogButtons}>
-                <TouchableOpacity 
-                  style={styles.saveDialogCancelButton}
-                  onPress={() => {
-                    setShowSaveDialog(false);
-                    setSaveFilterName('');
-                  }}
-                >
-                  <Text style={styles.saveDialogCancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.saveDialogSaveButton}
-                  onPress={handleSave}
-                >
-                  <Text style={styles.saveDialogSaveText}>Save</Text>
-                </TouchableOpacity>
-              </View>
+              <LinearGradient
+                colors={['rgba(31, 41, 55, 0.9)', 'rgba(31, 41, 55, 0.95)']}
+                style={styles.saveDialogGradient}
+              >
+                <Text style={styles.saveDialogTitle}>Save Filter</Text>
+                <TextInput
+                  style={styles.saveDialogInput}
+                  placeholder="Enter a name for this filter"
+                  placeholderTextColor={COLORS.text.secondary}
+                  value={saveFilterName}
+                  onChangeText={setSaveFilterName}
+                  autoFocus={true}
+                />
+                <View style={styles.saveDialogButtons}>
+                  <TouchableOpacity 
+                    style={styles.saveDialogCancelButton}
+                    onPress={() => {
+                      setShowSaveDialog(false);
+                      setSaveFilterName('');
+                    }}
+                  >
+                    <Text style={styles.saveDialogCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.saveDialogSaveButton}
+                    onPress={handleSave}
+                  >
+                    <LinearGradient
+                      colors={[COLORS.secondary, '#E5B93C']}
+                      style={styles.saveDialogSaveButtonGradient}
+                    >
+                      <Text style={styles.saveDialogSaveText}>Save</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </LinearGradient>
             </View>
           </View>
         )}
@@ -243,86 +402,149 @@ export default function FilterModal({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: COLORS.background.default,
+  },
+  headerGradient: {
+    paddingTop: Platform.OS === 'ios' ? 50 : 40,
+    paddingBottom: SPACING.sm,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 60,
-    paddingBottom: 16,
-    backgroundColor: '#1A1A1A',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: TYPOGRAPHY.fontSize.xl,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.text.primary,
+    textAlign: 'center',
+  },
+  iconButton: {
+    padding: SPACING.xs,
+  },
+  resetButton: {
+    padding: SPACING.xs,
   },
   resetText: {
-    color: '#FFD700',
-    fontSize: 16,
+    color: COLORS.secondary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: '600',
   },
   navigationContainer: {
-    paddingVertical: 12,
+    paddingVertical: SPACING.sm,
+    backgroundColor: 'rgba(31, 41, 55, 0.7)',
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: 'rgba(67, 113, 203, 0.1)',
+  },
+  navScrollContent: {
+    paddingHorizontal: SPACING.md,
   },
   navItem: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    marginHorizontal: 4,
-    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    marginRight: SPACING.sm,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: 'rgba(31, 41, 55, 0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.1)',
   },
   activeNavItem: {
-    backgroundColor: '#333',
+    backgroundColor: 'rgba(67, 113, 203, 0.2)',
+    borderColor: 'rgba(67, 113, 203, 0.3)',
+  },
+  navIcon: {
+    marginRight: SPACING.xs,
   },
   navItemText: {
-    color: '#ccc',
-    fontSize: 16,
+    color: COLORS.text.secondary,
+    fontSize: TYPOGRAPHY.fontSize.md,
   },
   activeNavItemText: {
-    color: '#fff',
+    color: COLORS.secondary,
     fontWeight: '600',
+  },
+  contentOuterContainer: {
+    flex: 1,
+    margin: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.15)',
+    ...SHADOWS.md,
+  },
+  contentGradient: {
+    flex: 1,
+    borderRadius: BORDER_RADIUS.lg,
+  },
+  contentScrollView: {
+    flex: 1,
+  },
+  contentScrollViewContent: {
+    padding: SPACING.md,
+    paddingBottom: SPACING.xl, // Extra padding at bottom for better scrolling
   },
   contentContainer: {
     flex: 1,
-    padding: 16,
   },
   footer: {
     flexDirection: 'row',
-    padding: 16,
+    padding: SPACING.md,
     borderTopWidth: 1,
-    borderTopColor: '#333',
+    borderTopColor: 'rgba(67, 113, 203, 0.1)',
+    backgroundColor: COLORS.background.default,
   },
   saveButton: {
+    height: 50,
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+    ...SHADOWS.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.2)',
+  },
+  saveButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#333',
-    padding: 14,
-    borderRadius: 8,
-    marginRight: 12,
-    flex: 1,
+    height: '100%',
   },
   saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
     fontWeight: '600',
-    marginLeft: 6,
+    marginLeft: SPACING.xs,
   },
   applyButton: {
-    backgroundColor: '#FFD700',
-    padding: 14,
-    borderRadius: 8,
+    height: 50,
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+    ...SHADOWS.md,
+  },
+  applyButtonGradient: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    flex: 2,
+    position: 'relative',
+    overflow: 'hidden',
   },
   applyButtonText: {
-    color: '#000',
-    fontSize: 16,
+    color: '#000000',
     fontWeight: 'bold',
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    letterSpacing: 0.5,
+  },
+  shimmerEffect: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    transform: [{ skewX: '-20deg' }],
+    width: 60,
   },
   saveDialogContainer: {
     position: 'absolute',
@@ -332,7 +554,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: SPACING.xl,
     zIndex: 1000,
   },
   saveDialogBackdrop: {
@@ -341,54 +563,63 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.8)',
   },
   saveDialog: {
-    backgroundColor: '#232323',
-    borderRadius: 12,
-    padding: 20,
     width: '100%',
-    zIndex: 1001,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'hidden',
+    ...SHADOWS.lg,
+  },
+  saveDialogGradient: {
+    padding: SPACING.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.2)',
   },
   saveDialogTitle: {
-    fontSize: 18,
+    fontSize: TYPOGRAPHY.fontSize.lg,
     fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 16,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.md,
+    textAlign: 'center',
   },
   saveDialogInput: {
-    backgroundColor: '#333',
-    borderRadius: 8,
-    padding: 12,
-    color: '#fff',
-    marginBottom: 16,
+    backgroundColor: 'rgba(31, 41, 55, 0.7)',
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(67, 113, 203, 0.2)',
   },
   saveDialogButtons: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   saveDialogCancelButton: {
-    padding: 10,
-    marginRight: 10,
+    padding: SPACING.md,
+    flex: 1,
   },
   saveDialogCancelText: {
-    color: '#ccc',
-    fontSize: 16,
+    color: COLORS.text.secondary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    textAlign: 'center',
   },
   saveDialogSaveButton: {
-    backgroundColor: '#FFD700',
-    padding: 10,
-    borderRadius: 6,
-    paddingHorizontal: 16,
+    flex: 1,
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+    ...SHADOWS.sm,
+    height: 44,
+  },
+  saveDialogSaveButtonGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saveDialogSaveText: {
-    color: '#000',
-    fontSize: 16,
+    color: '#000000',
+    fontSize: TYPOGRAPHY.fontSize.md,
     fontWeight: 'bold',
   },
 }); 
