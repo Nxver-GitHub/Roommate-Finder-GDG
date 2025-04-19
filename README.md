@@ -1,7 +1,7 @@
-# Roommate Finder App
+# slugspace - Roommate Finder App
 
 ## Project Overview
-This Roommate Finder app helps users connect with potential roommates by providing a platform to create profiles, discover matches, search with filters, and communicate with each other. Built with React Native and Expo, this application offers a comprehensive solution for finding compatible roommates.
+UCSC's roommate finder app, slugspace helps users connect with potential roommates by providing a platform to create profiles, discover matches, search with filters, and communicate with each other. Built with React Native and Expo, this application offers a comprehensive solution for finding compatible roommates.
 
 ## Features
 - **Profile Creation**: Create and edit user profiles with preferences
